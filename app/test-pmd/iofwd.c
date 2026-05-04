@@ -55,11 +55,14 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 	 * Receive a burst of packets and forward them.
 	 */
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 	if (unlikely(nb_rx == 0)) {
 		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
 	}
 
+	/* io mode: no processing, mark immediately */
+	jitter_mark_process(fs->jitter_ctx, &js);
 	common_fwd_stream_transmit(fs, pkts_burst, nb_rx);
 
 	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);

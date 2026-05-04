@@ -87,6 +87,22 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "  TSC start:    0x%016" PRIx64 "\n", r->tsc_start);
 	fprintf(f, "  TSC delta:    %.1f us  (%" PRIu64 " cycles)\n",
 		delta_us, r->tsc_delta);
+	if (r->tsc_rx_delta > 0 || r->tsc_process_delta > 0 ||
+	    r->tsc_tx_delta > 0) {
+		fprintf(f, "  Phase breakdown:\n");
+		if (r->tsc_rx_delta > 0)
+			fprintf(f, "    rx:      %8.1f us  (%" PRIu64 " cycles)\n",
+				(double)r->tsc_rx_delta * 1000000.0 / (double)tsc_hz,
+				r->tsc_rx_delta);
+		if (r->tsc_process_delta > 0)
+			fprintf(f, "    process: %8.1f us  (%" PRIu64 " cycles)\n",
+				(double)r->tsc_process_delta * 1000000.0 / (double)tsc_hz,
+				r->tsc_process_delta);
+		if (r->tsc_tx_delta > 0)
+			fprintf(f, "    tx:      %8.1f us  (%" PRIu64 " cycles)\n",
+				(double)r->tsc_tx_delta * 1000000.0 / (double)tsc_hz,
+				r->tsc_tx_delta);
+	}
 	fprintf(f, "  Classification: %s\n", jitter_class_names[cls]);
 	fprintf(f, "  Hot-path:\n");
 	fprintf(f, "    inst_retired:    %" PRIu64 "\n",

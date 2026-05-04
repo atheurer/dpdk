@@ -37,6 +37,11 @@ struct jitter_record {
 	uint64_t tsc_end;
 	uint64_t tsc_delta;
 
+	/* Per-phase TSC deltas (0 if marker not called) */
+	uint64_t tsc_rx_delta;      /* start -> post_rx */
+	uint64_t tsc_process_delta; /* post_rx -> post_process */
+	uint64_t tsc_tx_delta;      /* post_process -> end */
+
 	/* Hot-path PMC deltas */
 	uint64_t inst_retired_delta;
 	uint64_t cycles_unhalted_delta;
@@ -204,6 +209,8 @@ enum jitter_class jitter_classify(const struct jitter_record *r);
 /* Hot-path iteration markers */
 struct jitter_iter_state {
 	uint64_t tsc_start;
+	uint64_t tsc_post_rx;
+	uint64_t tsc_post_process;
 	uint64_t inst_start;
 	uint64_t cycles_start;
 	uint64_t ref_cycles_start;
@@ -276,6 +283,24 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 	st->ref_cycles_start = 0;
 #endif
 	st->tsc_start = rte_rdtsc();
+}
+
+static __rte_always_inline void
+jitter_mark_rx(struct jitter_lcore_ctx *ctx,
+	       struct jitter_iter_state *st)
+{
+	if (unlikely(ctx == NULL))
+		return;
+	st->tsc_post_rx = rte_rdtsc();
+}
+
+static __rte_always_inline void
+jitter_mark_process(struct jitter_lcore_ctx *ctx,
+		    struct jitter_iter_state *st)
+{
+	if (unlikely(ctx == NULL))
+		return;
+	st->tsc_post_process = rte_rdtsc();
 }
 
 static __rte_always_inline void

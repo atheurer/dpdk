@@ -185,6 +185,16 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	r->queue_id = st->queue_id;
 	r->nb_rx = nb_rx;
 	r->rx_ring_depth_before = st->rx_ring_depth_before;
+
+	/* Per-phase timing */
+	if (st->tsc_post_rx > 0)
+		r->tsc_rx_delta = st->tsc_post_rx - st->tsc_start;
+	if (st->tsc_post_process > 0 && st->tsc_post_rx > 0)
+		r->tsc_process_delta = st->tsc_post_process - st->tsc_post_rx;
+	if (st->tsc_post_process > 0)
+		r->tsc_tx_delta = tsc_end - st->tsc_post_process;
+	else if (st->tsc_post_rx > 0)
+		r->tsc_tx_delta = tsc_end - st->tsc_post_rx;
 	{
 		int cnt = rte_eth_rx_queue_count(st->port_id, st->queue_id);
 		r->rx_ring_depth_after = cnt > 0 ? (uint32_t)cnt : 0;
