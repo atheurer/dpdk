@@ -18,6 +18,8 @@
 #endif
 
 #define JITTER_MAX_XSTATS 64
+#define JITTER_MAX_IRQS   16
+#define JITTER_IRQ_NAME_SIZE 32
 
 enum jitter_class {
 	JITTER_CLASS_UNKNOWN = 0,
@@ -75,6 +77,10 @@ struct jitter_record {
 	/* PMD-specific xstat deltas */
 	uint64_t xstat_deltas[JITTER_MAX_XSTATS];
 	uint16_t xstat_count;
+
+	/* Per-CPU interrupt deltas (0 if not collected) */
+	uint64_t irq_deltas[JITTER_MAX_IRQS];
+	uint16_t irq_count;
 
 	/* Set by jitter_classify() at dump time */
 	uint16_t classification; /* enum jitter_class */
@@ -134,6 +140,15 @@ struct jitter_lcore_ctx {
 	} aer_ports[RTE_MAX_ETHPORTS];
 	uint16_t nb_aer_ports;
 
+	/* Per-CPU interrupt tracking */
+	uint8_t irq_enabled;
+	int irq_cpu_col;  /* column index for our CPU in /proc/interrupts */
+	struct {
+		char name[JITTER_IRQ_NAME_SIZE];
+		uint64_t last_count;
+	} irqs[JITTER_MAX_IRQS];
+	uint16_t irq_count;
+
 	/* PMD-specific xstat tracking */
 	struct {
 		uint64_t ids[JITTER_MAX_XSTATS];
@@ -149,6 +164,7 @@ extern uint64_t jitter_threshold_cycles;
 extern uint32_t jitter_record_count;
 extern uint8_t jitter_msr_enabled;
 extern uint8_t jitter_aer_enabled;
+extern uint8_t jitter_irq_enabled;
 extern char jitter_output_path[PATH_MAX];
 extern char jitter_output_format[16];
 

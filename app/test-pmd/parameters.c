@@ -262,6 +262,8 @@ enum {
 	TESTPMD_OPT_JITTER_MSR_NUM,
 #define TESTPMD_OPT_JITTER_AER "jitter-aer"
 	TESTPMD_OPT_JITTER_AER_NUM,
+#define TESTPMD_OPT_JITTER_INTERRUPTS "jitter-interrupts"
+	TESTPMD_OPT_JITTER_INTERRUPTS_NUM,
 #define TESTPMD_OPT_JITTER_OUTPUT "jitter-output"
 	TESTPMD_OPT_JITTER_OUTPUT_NUM,
 #define TESTPMD_OPT_JITTER_OUTPUT_FORMAT "jitter-output-format"
@@ -395,6 +397,7 @@ static const struct option long_options[] = {
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_RECORD_COUNT),
 	NO_ARG(TESTPMD_OPT_JITTER_MSR),
 	NO_ARG(TESTPMD_OPT_JITTER_AER),
+	NO_ARG(TESTPMD_OPT_JITTER_INTERRUPTS),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT_FORMAT),
 	{ 0, 0, NULL, 0 }
@@ -571,6 +574,7 @@ usage(char* progname)
 	       " (default 1024).\n");
 	printf("  --jitter-msr: enable MSR reads (SMI count, APERF/MPERF).\n");
 	printf("  --jitter-aer: enable PCIe AER register reads on anomaly.\n");
+	printf("  --jitter-interrupts: track per-CPU interrupt counts on anomaly.\n");
 	printf("  --jitter-output=PATH: anomaly dump output file"
 	       " (default stderr).\n");
 	printf("  --jitter-output-format=FMT: text or csv"
@@ -1783,6 +1787,9 @@ launch_args_parse(int argc, char** argv)
 			break;
 		case TESTPMD_OPT_JITTER_AER_NUM:
 			jitter_aer_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_INTERRUPTS_NUM:
+			jitter_irq_enabled = 1;
 			break;
 		case TESTPMD_OPT_JITTER_OUTPUT_NUM:
 			strlcpy(jitter_output_path, optarg,

@@ -148,6 +148,21 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "    ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
 	fprintf(f, "    mempool_avail:          %u\n", r->mempool_avail);
+	if (r->irq_count > 0) {
+		int any = 0;
+
+		for (i = 0; i < r->irq_count && i < ctx->irq_count; i++) {
+			if (r->irq_deltas[i] != 0) {
+				if (!any) {
+					fprintf(f, "  Interrupts:\n");
+					any = 1;
+				}
+				fprintf(f, "    %-8s %" PRIu64 "\n",
+					ctx->irqs[i].name,
+					r->irq_deltas[i]);
+			}
+		}
+	}
 	if (r->xstat_count > 0) {
 		int any = 0;
 

@@ -38,6 +38,7 @@ uint64_t jitter_threshold_cycles;
 uint32_t jitter_record_count = 1024;
 uint8_t jitter_msr_enabled;
 uint8_t jitter_aer_enabled;
+uint8_t jitter_irq_enabled;
 char jitter_output_path[PATH_MAX] = "";
 char jitter_output_format[16] = "text";
 
@@ -45,6 +46,11 @@ static uint64_t jitter_threshold_us_val = 100;
 
 /* Per-lcore ctx table */
 struct jitter_lcore_ctx *jitter_lcore_ctxs[RTE_MAX_LCORE];
+
+/* Forward declarations for interrupt tracking */
+static void jitter_irq_init(struct jitter_lcore_ctx *ctx, int cpu);
+static void jitter_irq_read(struct jitter_lcore_ctx *ctx, uint64_t *deltas);
+static void jitter_irq_update_baseline(struct jitter_lcore_ctx *ctx);
 
 int
 jitter_global_init(void)
@@ -201,9 +207,15 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	}
 
 	/*
-	 * Read context switches FIRST, before any cold-path syscalls.
-	 * This captures only what happened during the forwarding iteration.
+	 * Read context switches and interrupts FIRST, before any cold-path
+	 * syscalls. This captures only what happened during the forwarding
+	 * iteration.
 	 */
+	if (ctx->irq_enabled) {
+		jitter_irq_read(ctx, r->irq_deltas);
+		r->irq_count = ctx->irq_count;
+	}
+
 	struct rusage ru_before;
 	if (getrusage(RUSAGE_THREAD, &ru_before) == 0) {
 		r->voluntary_cs_delta = (uint64_t)ru_before.ru_nvcsw -
@@ -289,15 +301,18 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	}
 
 	/*
-	 * Read context switches AGAIN after all cold-path work.
-	 * Update baseline to this value so the next anomaly's delta
-	 * excludes syscalls made by our own measurement code.
+	 * Read context switches and interrupts AGAIN after all cold-path
+	 * work. Update baselines so the next anomaly's deltas exclude
+	 * syscalls made by our own measurement code.
 	 */
 	struct rusage ru_after;
 	if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
 		ctx->last_voluntary_cs = (uint64_t)ru_after.ru_nvcsw;
 		ctx->last_nonvoluntary_cs = (uint64_t)ru_after.ru_nivcsw;
 	}
+
+	if (ctx->irq_enabled)
+		jitter_irq_update_baseline(ctx);
 }
 
 int
@@ -321,6 +336,237 @@ jitter_read_ctxt_switches(uint64_t *vcs, uint64_t *nvcs)
 	}
 	fclose(f);
 	return 0;
+}
+
+static uint64_t
+parse_irq_count_for_cpu(const char *line, int cpu_col)
+{
+	const char *p = line;
+	int col = 0;
+
+	/* Skip the IRQ name/number field (everything before the first digit column) */
+	while (*p == ' ')
+		p++;
+	/* Skip past the IRQ label (e.g. "LOC:" or "  42:") */
+	while (*p && *p != ':')
+		p++;
+	if (*p == ':')
+		p++;
+
+	/* Now parse space-separated count columns */
+	while (*p && col <= cpu_col) {
+		while (*p == ' ')
+			p++;
+		if (*p == '\0' || !(*p >= '0' && *p <= '9'))
+			break;
+		if (col == cpu_col)
+			return strtoull(p, NULL, 10);
+		while (*p >= '0' && *p <= '9')
+			p++;
+		col++;
+	}
+	return 0;
+}
+
+static int
+find_cpu_column(const char *header_line, int cpu)
+{
+	char target[16];
+	const char *p;
+	int col = 0;
+
+	snprintf(target, sizeof(target), "CPU%d", cpu);
+	p = header_line;
+	while (*p) {
+		while (*p == ' ')
+			p++;
+		if (strncmp(p, target, strlen(target)) == 0)
+			return col;
+		while (*p && *p != ' ')
+			p++;
+		col++;
+	}
+	return -1;
+}
+
+static void
+jitter_irq_init(struct jitter_lcore_ctx *ctx, int cpu)
+{
+	FILE *f;
+	char line[4096];
+	int header_done = 0;
+
+	ctx->irq_count = 0;
+	ctx->irq_cpu_col = -1;
+
+	f = fopen("/proc/interrupts", "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f)) {
+		char irq_name[JITTER_IRQ_NAME_SIZE];
+		const char *p;
+		uint64_t count;
+
+		if (!header_done) {
+			ctx->irq_cpu_col = find_cpu_column(line, cpu);
+			if (ctx->irq_cpu_col < 0) {
+				fclose(f);
+				return;
+			}
+			header_done = 1;
+			continue;
+		}
+
+		if (ctx->irq_count >= JITTER_MAX_IRQS)
+			break;
+
+		/* Extract IRQ name — it's at the start before ':' */
+		p = line;
+		while (*p == ' ')
+			p++;
+
+		/* Get the label (e.g. "LOC", "NMI", "42") */
+		{
+			int i = 0;
+			while (*p && *p != ':' &&
+			       i < (int)sizeof(irq_name) - 1) {
+				irq_name[i++] = *p++;
+			}
+			irq_name[i] = '\0';
+		}
+
+		/* Only track interesting interrupt types */
+		if (strcmp(irq_name, "LOC") != 0 &&
+		    strcmp(irq_name, "NMI") != 0 &&
+		    strcmp(irq_name, "RES") != 0 &&
+		    strcmp(irq_name, "CAL") != 0 &&
+		    strcmp(irq_name, "TLB") != 0 &&
+		    strcmp(irq_name, "IWI") != 0 &&
+		    strcmp(irq_name, "PMI") != 0 &&
+		    strcmp(irq_name, "MCP") != 0)
+			continue;
+
+		count = parse_irq_count_for_cpu(line, ctx->irq_cpu_col);
+
+		strlcpy(ctx->irqs[ctx->irq_count].name, irq_name,
+			JITTER_IRQ_NAME_SIZE);
+		ctx->irqs[ctx->irq_count].last_count = count;
+		ctx->irq_count++;
+	}
+
+	fclose(f);
+
+	if (ctx->irq_count > 0) {
+		uint16_t j;
+
+		ctx->irq_enabled = 1;
+		TESTPMD_LOG(NOTICE, "Jitter: tracking %u interrupt sources "
+			    "for cpu %d:\n", ctx->irq_count, cpu);
+		for (j = 0; j < ctx->irq_count; j++)
+			TESTPMD_LOG(NOTICE, "  irq[%u]: %s\n",
+				    j, ctx->irqs[j].name);
+	}
+}
+
+static void
+jitter_irq_read(struct jitter_lcore_ctx *ctx, uint64_t *deltas)
+{
+	FILE *f;
+	char line[4096];
+	int header_done = 0;
+	uint16_t matched = 0;
+
+	memset(deltas, 0, sizeof(uint64_t) * ctx->irq_count);
+
+	f = fopen("/proc/interrupts", "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f)) {
+		char irq_name[JITTER_IRQ_NAME_SIZE];
+		const char *p;
+		uint16_t i;
+
+		if (!header_done) {
+			header_done = 1;
+			continue;
+		}
+
+		p = line;
+		while (*p == ' ')
+			p++;
+		{
+			int n = 0;
+			while (*p && *p != ':' &&
+			       n < (int)sizeof(irq_name) - 1) {
+				irq_name[n++] = *p++;
+			}
+			irq_name[n] = '\0';
+		}
+
+		for (i = 0; i < ctx->irq_count; i++) {
+			if (strcmp(irq_name, ctx->irqs[i].name) == 0) {
+				uint64_t count = parse_irq_count_for_cpu(
+					line, ctx->irq_cpu_col);
+				deltas[i] = count - ctx->irqs[i].last_count;
+				matched++;
+				break;
+			}
+		}
+		if (matched >= ctx->irq_count)
+			break;
+	}
+	fclose(f);
+}
+
+static void
+jitter_irq_update_baseline(struct jitter_lcore_ctx *ctx)
+{
+	FILE *f;
+	char line[4096];
+	int header_done = 0;
+	uint16_t matched = 0;
+
+	f = fopen("/proc/interrupts", "r");
+	if (f == NULL)
+		return;
+
+	while (fgets(line, sizeof(line), f)) {
+		char irq_name[JITTER_IRQ_NAME_SIZE];
+		const char *p;
+		uint16_t i;
+
+		if (!header_done) {
+			header_done = 1;
+			continue;
+		}
+
+		p = line;
+		while (*p == ' ')
+			p++;
+		{
+			int n = 0;
+			while (*p && *p != ':' &&
+			       n < (int)sizeof(irq_name) - 1) {
+				irq_name[n++] = *p++;
+			}
+			irq_name[n] = '\0';
+		}
+
+		for (i = 0; i < ctx->irq_count; i++) {
+			if (strcmp(irq_name, ctx->irqs[i].name) == 0) {
+				ctx->irqs[i].last_count =
+					parse_irq_count_for_cpu(
+						line, ctx->irq_cpu_col);
+				matched++;
+				break;
+			}
+		}
+		if (matched >= ctx->irq_count)
+			break;
+	}
+	fclose(f);
 }
 
 static const char * const jitter_xstat_positive[] = {
@@ -471,6 +717,13 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 		}
 	}
 #endif
+
+	if (jitter_irq_enabled) {
+		int cpu = sched_getcpu();
+		if (cpu < 0)
+			cpu = 0;
+		jitter_irq_init(ctx, cpu);
+	}
 }
 
 void
