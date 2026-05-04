@@ -277,6 +277,8 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 		return;
 	if (unlikely(!ctx->pmc_init_done))
 		jitter_pmc_lazy_init(ctx);
+	st->tsc_post_rx = 0;
+	st->tsc_post_process = 0;
 	st->port_id = port_id;
 	st->queue_id = queue_id;
 	{
