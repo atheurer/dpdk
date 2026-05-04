@@ -128,14 +128,7 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 		}
 	}
 
-	/* Seed context switch baselines via getrusage */
-	{
-		struct rusage ru;
-		if (getrusage(RUSAGE_THREAD, &ru) == 0) {
-			ctx->last_voluntary_cs = (uint64_t)ru.ru_nvcsw;
-			ctx->last_nonvoluntary_cs = (uint64_t)ru.ru_nivcsw;
-		}
-	}
+	/* Context switch baseline deferred to jitter_pmc_lazy_init() */
 
 	/* Seed NIC stats baselines */
 	struct rte_eth_stats stats;
@@ -723,6 +716,15 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 		if (cpu < 0)
 			cpu = 0;
 		jitter_irq_init(ctx, cpu);
+	}
+
+	/* Seed context switch baseline from the forwarding lcore thread */
+	{
+		struct rusage ru;
+		if (getrusage(RUSAGE_THREAD, &ru) == 0) {
+			ctx->last_voluntary_cs = (uint64_t)ru.ru_nvcsw;
+			ctx->last_nonvoluntary_cs = (uint64_t)ru.ru_nivcsw;
+		}
 	}
 }
 
