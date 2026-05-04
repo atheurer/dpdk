@@ -48,6 +48,7 @@
 #include <rte_geneve.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 #define IP_DEFTTL  64   /* from RFC 1340. */
 
@@ -856,11 +857,16 @@ pkt_burst_checksum_forward(struct fwd_stream *fs)
 	uint32_t rx_bad_outer_l4_csum;
 	uint32_t rx_bad_outer_ip_csum;
 	struct testpmd_offload_info info;
+	struct jitter_iter_state js;
+
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 
 	/* receive a burst of packet */
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 	if (unlikely(nb_rx == 0)) {
 #ifndef RTE_LIB_GRO
+		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
 #else
 		gro_enable = gro_ports[fs->rx_port].enable;
@@ -872,8 +878,10 @@ pkt_burst_checksum_forward(struct fwd_stream *fs)
 		 * packets in the GRO context.
 		 */
 		if (!gro_enable || (gro_flush_cycles == GRO_DEFAULT_FLUSH_CYCLES) ||
-			(rte_gro_get_pkt_count(current_fwd_lcore()->gro_ctx) == 0))
+			(rte_gro_get_pkt_count(current_fwd_lcore()->gro_ctx) == 0)) {
+			jitter_iter_end(fs->jitter_ctx, &js, 0);
 			return false;
+		}
 #endif
 	}
 
@@ -1175,6 +1183,8 @@ tunnel_update:
 #endif
 		tx_pkts_burst = pkts_burst;
 
+	jitter_mark_process(fs->jitter_ctx, &js);
+
 	nb_prep = rte_eth_tx_prepare(fs->tx_port, fs->tx_queue,
 			tx_pkts_burst, nb_rx);
 	if (nb_prep != nb_rx) {
@@ -1192,6 +1202,7 @@ tunnel_update:
 	fs->rx_bad_outer_l4_csum += rx_bad_outer_l4_csum;
 	fs->rx_bad_outer_ip_csum += rx_bad_outer_ip_csum;
 
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 	return true;
 }
 

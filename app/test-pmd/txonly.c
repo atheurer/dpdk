@@ -37,6 +37,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 struct tx_timestamp {
 	rte_be32_t signature;
@@ -317,11 +318,14 @@ pkt_burst_transmit(struct fwd_stream *fs)
 	struct rte_mbuf *pkt;
 	struct rte_mempool *mbp;
 	struct rte_ether_hdr eth_hdr;
+	struct jitter_iter_state js;
 	uint16_t nb_tx;
 	uint16_t nb_pkt;
 	uint16_t vlan_tci, vlan_tci_outer;
 	uint64_t ol_flags = 0;
 	uint64_t tx_offloads;
+
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->tx_port, fs->tx_queue);
 
 	mbp = current_fwd_lcore()->mbp;
 	txp = &ports[fs->tx_port];
@@ -373,9 +377,12 @@ pkt_burst_transmit(struct fwd_stream *fs)
 		}
 	}
 
-	if (nb_pkt == 0)
+	if (nb_pkt == 0) {
+		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
+	}
 
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = common_fwd_stream_transmit(fs, pkts_burst, nb_pkt);
 
 	if (txonly_multi_flow)
@@ -390,6 +397,7 @@ pkt_burst_transmit(struct fwd_stream *fs)
 			       (unsigned) (nb_pkt - nb_tx));
 	}
 
+	jitter_iter_end(fs->jitter_ctx, &js, 0);
 	return true;
 }
 

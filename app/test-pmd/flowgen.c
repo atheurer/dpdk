@@ -37,6 +37,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 static uint32_t cfg_ip_src	= RTE_IPV4(10, 254, 0, 0);
 static uint32_t cfg_ip_dst	= RTE_IPV4(10, 253, 0, 0);
@@ -68,6 +69,7 @@ pkt_burst_flow_gen(struct fwd_stream *fs)
 	struct rte_ether_hdr *eth_hdr;
 	struct rte_ipv4_hdr *ip_hdr;
 	struct rte_udp_hdr *udp_hdr;
+	struct jitter_iter_state js;
 	uint16_t vlan_tci, vlan_tci_outer;
 	uint64_t ol_flags = 0;
 	uint16_t nb_rx;
@@ -78,8 +80,11 @@ pkt_burst_flow_gen(struct fwd_stream *fs)
 	uint64_t tx_offloads;
 	int next_flow = RTE_PER_LCORE(_next_flow);
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
+
 	/* Receive a burst of packets and discard them. */
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 
 	rte_pktmbuf_free_bulk(pkts_burst, nb_rx);
 
@@ -157,6 +162,7 @@ pkt_burst_flow_gen(struct fwd_stream *fs)
 			next_flow = 0;
 	}
 
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = common_fwd_stream_transmit(fs, pkts_burst, nb_pkt);
 	nb_dropped = nb_pkt - nb_tx;
 	if (unlikely(nb_dropped > 0)) {
@@ -168,6 +174,7 @@ pkt_burst_flow_gen(struct fwd_stream *fs)
 
 	RTE_PER_LCORE(_next_flow) = next_flow;
 
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 	return true;
 }
 

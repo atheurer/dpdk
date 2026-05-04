@@ -33,6 +33,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 static const char *
 arp_op_name(uint16_t arp_op)
@@ -259,6 +260,7 @@ reply_to_icmp_echo_rqsts(struct fwd_stream *fs)
 	struct rte_ipv4_hdr *ip_h;
 	struct rte_icmp_hdr *icmp_h;
 	struct rte_ether_addr eth_addr;
+	struct jitter_iter_state js;
 	uint32_t ip_addr;
 	uint16_t nb_rx;
 	uint16_t nb_replies;
@@ -270,12 +272,17 @@ reply_to_icmp_echo_rqsts(struct fwd_stream *fs)
 	uint8_t  i;
 	int l2_len;
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
+
 	/*
 	 * First, receive a burst of packets.
 	 */
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
-	if (unlikely(nb_rx == 0))
+	jitter_mark_rx(fs->jitter_ctx, &js);
+	if (unlikely(nb_rx == 0)) {
+		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
+	}
 
 	nb_replies = 0;
 	for (i = 0; i < nb_rx; i++) {
@@ -452,10 +459,12 @@ reply_to_icmp_echo_rqsts(struct fwd_stream *fs)
 		pkts_burst[nb_replies++] = pkt;
 	}
 
+	jitter_mark_process(fs->jitter_ctx, &js);
 	/* Send back ICMP echo replies, if any. */
 	if (nb_replies > 0)
 		common_fwd_stream_transmit(fs, pkts_burst, nb_replies);
 
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 	return true;
 }
 

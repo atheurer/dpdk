@@ -32,6 +32,7 @@
 #include <rte_malloc.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 #include "5tswap.h"
 #include "macfwd.h"
 #if defined(RTE_ARCH_X86)
@@ -188,11 +189,16 @@ static bool
 pkt_burst_io(struct fwd_stream *fs)
 {
 	struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
 	uint16_t nb_tx;
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = noisy_eth_tx_burst(fs, nb_rx, pkts_burst);
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 
 	return nb_rx > 0 || nb_tx > 0;
 }
@@ -201,13 +207,18 @@ static bool
 pkt_burst_mac(struct fwd_stream *fs)
 {
 	struct rte_mbuf  *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
 	uint16_t nb_tx;
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 	if (likely(nb_rx != 0))
 		do_macfwd(pkts_burst, nb_rx, fs);
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = noisy_eth_tx_burst(fs, nb_rx, pkts_burst);
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 
 	return nb_rx > 0 || nb_tx > 0;
 }
@@ -216,13 +227,18 @@ static bool
 pkt_burst_macswap(struct fwd_stream *fs)
 {
 	struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
 	uint16_t nb_tx;
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 	if (likely(nb_rx != 0))
 		do_macswap(pkts_burst, nb_rx, &ports[fs->tx_port]);
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = noisy_eth_tx_burst(fs, nb_rx, pkts_burst);
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 
 	return nb_rx > 0 || nb_tx > 0;
 }
@@ -231,13 +247,18 @@ static bool
 pkt_burst_5tswap(struct fwd_stream *fs)
 {
 	struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
 	uint16_t nb_tx;
 
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
+	jitter_mark_rx(fs->jitter_ctx, &js);
 	if (likely(nb_rx != 0))
 		do_5tswap(pkts_burst, nb_rx, fs);
+	jitter_mark_process(fs->jitter_ctx, &js);
 	nb_tx = noisy_eth_tx_burst(fs, nb_rx, pkts_burst);
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 
 	return nb_rx > 0 || nb_tx > 0;
 }

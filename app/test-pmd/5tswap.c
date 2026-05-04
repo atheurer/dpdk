@@ -19,6 +19,7 @@
 
 #include "testpmd.h"
 #include "5tswap.h"
+#include "jitter.h"
 
 /*
  * 5 tuple swap forwarding mode: Swap the source and the destination of layers
@@ -29,19 +30,24 @@ static bool
 pkt_burst_5tuple_swap(struct fwd_stream *fs)
 {
 	struct rte_mbuf  *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
 
-	/*
-	 * Receive a burst of packets and forward them.
-	 */
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
+
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
-	if (unlikely(nb_rx == 0))
+	jitter_mark_rx(fs->jitter_ctx, &js);
+	if (unlikely(nb_rx == 0)) {
+		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
+	}
 
 	do_5tswap(pkts_burst, nb_rx, fs);
+	jitter_mark_process(fs->jitter_ctx, &js);
 
 	common_fwd_stream_transmit(fs, pkts_burst, nb_rx);
 
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 	return true;
 }
 
