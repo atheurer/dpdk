@@ -67,11 +67,13 @@ jitter_classify(const struct jitter_record *r)
 }
 
 static void
-dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx)
+dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
+		 const struct jitter_lcore_ctx *ctx)
 {
 	uint64_t tsc_hz = rte_get_tsc_hz();
 	double delta_us = (double)r->tsc_delta * 1000000.0 / (double)tsc_hz;
 	enum jitter_class cls = jitter_classify(r);
+	uint16_t i;
 
 	fprintf(f, "=== Anomaly #%u lcore=%u port=%u queue=%u ===\n",
 		idx, r->lcore_id, r->port_id, r->queue_id);
@@ -109,12 +111,23 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx)
 	fprintf(f, "    ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
 	fprintf(f, "    mempool_avail:          %u\n", r->mempool_avail);
+	if (r->xstat_count > 0) {
+		fprintf(f, "  PMD xstats:\n");
+		for (i = 0; i < r->xstat_count && i < ctx->xstats.count; i++) {
+			if (r->xstat_deltas[i] != 0)
+				fprintf(f, "    %-32s %" PRIu64 "\n",
+					ctx->xstats.names[i],
+					r->xstat_deltas[i]);
+		}
+	}
 	fprintf(f, "\n");
 }
 
 static void
-dump_csv_header(FILE *f)
+dump_csv_header(FILE *f, const struct jitter_lcore_ctx *ctx)
 {
+	uint16_t i;
+
 	fprintf(f, "lcore_id,port_id,queue_id,tsc_start,tsc_end,"
 		"tsc_delta,delta_us,classification,"
 		"inst_retired_delta,cycles_unhalted_delta,"
@@ -123,15 +136,20 @@ dump_csv_header(FILE *f)
 		"voluntary_cs_delta,nonvoluntary_cs_delta,"
 		"aer_correctable_delta,aer_uncorrectable_delta,"
 		"rx_missed_delta,rx_nombuf_delta,ierrors_delta,"
-		"mempool_avail\n");
+		"mempool_avail");
+	for (i = 0; i < ctx->xstats.count; i++)
+		fprintf(f, ",%s", ctx->xstats.names[i]);
+	fprintf(f, "\n");
 }
 
 static void
-dump_record_csv(FILE *f, const struct jitter_record *r)
+dump_record_csv(FILE *f, const struct jitter_record *r,
+		const struct jitter_lcore_ctx *ctx)
 {
 	uint64_t tsc_hz = rte_get_tsc_hz();
 	double delta_us = (double)r->tsc_delta * 1000000.0 / (double)tsc_hz;
 	enum jitter_class cls = jitter_classify(r);
+	uint16_t i;
 
 	fprintf(f, "%u,%u,%u,%" PRIu64 ",%" PRIu64 ","
 		"%" PRIu64 ",%.1f,%s,"
@@ -141,7 +159,7 @@ dump_record_csv(FILE *f, const struct jitter_record *r)
 		"%" PRIu64 ",%" PRIu64 ","
 		"%u,%u,"
 		"%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
-		"%u\n",
+		"%u",
 		r->lcore_id, r->port_id, r->queue_id,
 		r->tsc_start, r->tsc_end,
 		r->tsc_delta, delta_us, jitter_class_names[cls],
@@ -152,6 +170,10 @@ dump_record_csv(FILE *f, const struct jitter_record *r)
 		r->aer_correctable_delta, r->aer_uncorrectable_delta,
 		r->rx_missed_delta, r->rx_nombuf_delta, r->ierrors_delta,
 		r->mempool_avail);
+	for (i = 0; i < ctx->xstats.count; i++)
+		fprintf(f, ",%" PRIu64,
+			i < r->xstat_count ? r->xstat_deltas[i] : 0UL);
+	fprintf(f, "\n");
 }
 
 int
@@ -173,8 +195,16 @@ jitter_dump(const char *path, const char *format)
 	}
 
 	is_csv = (format != NULL && strcmp(format, "csv") == 0);
-	if (is_csv)
-		dump_csv_header(f);
+
+	/* For CSV, emit header using the first active ctx for xstat names */
+	if (is_csv) {
+		for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+			if (jitter_lcore_ctxs[lcore_id] != NULL) {
+				dump_csv_header(f, jitter_lcore_ctxs[lcore_id]);
+				break;
+			}
+		}
+	}
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
@@ -196,9 +226,9 @@ jitter_dump(const char *path, const char *format)
 			struct jitter_record *r =
 				&ctx->records[i % ctx->record_capacity];
 			if (is_csv)
-				dump_record_csv(f, r);
+				dump_record_csv(f, r, ctx);
 			else
-				dump_record_text(f, r, i);
+				dump_record_text(f, r, i, ctx);
 		}
 	}
 

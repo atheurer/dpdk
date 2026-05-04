@@ -17,6 +17,8 @@
 #include <linux/perf_event.h>
 #endif
 
+#define JITTER_MAX_XSTATS 32
+
 enum jitter_class {
 	JITTER_CLASS_UNKNOWN = 0,
 	JITTER_CLASS_KERNEL_PREEMPTION,
@@ -63,6 +65,10 @@ struct jitter_record {
 	uint64_t rx_nombuf_delta;
 	uint64_t ierrors_delta;
 	uint32_t mempool_avail;
+
+	/* PMD-specific xstat deltas */
+	uint64_t xstat_deltas[JITTER_MAX_XSTATS];
+	uint16_t xstat_count;
 
 	/* Set by jitter_classify() at dump time */
 	uint16_t classification; /* enum jitter_class */
@@ -119,6 +125,14 @@ struct jitter_lcore_ctx {
 		uint16_t aer_cap_offset;
 	} aer_ports[RTE_MAX_ETHPORTS];
 	uint16_t nb_aer_ports;
+
+	/* PMD-specific xstat tracking */
+	struct {
+		uint64_t ids[JITTER_MAX_XSTATS];
+		char names[JITTER_MAX_XSTATS][RTE_ETH_XSTATS_NAME_SIZE];
+		uint64_t last_values[JITTER_MAX_XSTATS];
+		uint16_t count;
+	} xstats;
 } __rte_cache_aligned;
 
 /* Global configuration — set from CLI, read by all lcores */
@@ -164,6 +178,9 @@ void jitter_pmc_teardown(struct jitter_lcore_ctx *ctx);
 
 /* Lazy PMC init — called from forwarding lcore on first iteration */
 void jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx);
+
+/* xstat discovery — called from jitter_lcore_init() */
+void jitter_xstats_init(struct jitter_lcore_ctx *ctx, uint16_t port_id);
 
 /* MSR helpers (jitter_msr.c) */
 int jitter_msr_open(int cpu);

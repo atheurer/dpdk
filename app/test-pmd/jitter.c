@@ -130,6 +130,9 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 		ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
 	}
 
+	/* Discover PMD-specific xstats */
+	jitter_xstats_init(ctx, port_id);
+
 	jitter_lcore_ctxs[lcore_id] = ctx;
 	return ctx;
 }
@@ -237,6 +240,25 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	/* Mempool avail count */
 	if (ctx->mbuf_pool != NULL)
 		r->mempool_avail = rte_mempool_avail_count(ctx->mbuf_pool);
+
+	/* PMD-specific xstats */
+	if (ctx->xstats.count > 0) {
+		uint64_t values[JITTER_MAX_XSTATS];
+		int ret;
+		uint16_t i;
+
+		ret = rte_eth_xstats_get_by_id(st->port_id,
+					       ctx->xstats.ids, values,
+					       ctx->xstats.count);
+		if (ret == (int)ctx->xstats.count) {
+			r->xstat_count = ctx->xstats.count;
+			for (i = 0; i < ctx->xstats.count; i++) {
+				r->xstat_deltas[i] = values[i] -
+					ctx->xstats.last_values[i];
+				ctx->xstats.last_values[i] = values[i];
+			}
+		}
+	}
 }
 
 int
@@ -260,6 +282,78 @@ jitter_read_ctxt_switches(uint64_t *vcs, uint64_t *nvcs)
 	}
 	fclose(f);
 	return 0;
+}
+
+static const char * const jitter_xstat_names[] = {
+	/* ice PMD */
+	"rx_dropped_packets",
+	"tx_link_down_dropped",
+	"rx_crc_errors",
+	"rx_illegal_byte_errors",
+	"rx_error_bytes",
+	"mac_local_errors",
+	"mac_remote_errors",
+	"tx_xon_packets",
+	"rx_xon_packets",
+	"tx_xoff_packets",
+	"rx_xoff_packets",
+	"rx_undersized_errors",
+	"rx_oversize_errors",
+	"rx_jabber_errors",
+	/* mlx5 PMD */
+	"rx_out_of_buffer",
+	"dev_out_of_buffer",
+	"rx_phy_crc_errors",
+	"rx_phy_symbol_errors",
+	"tx_phy_errors",
+	"rx_pci_signal_integrity",
+	"tx_pci_signal_integrity",
+	"outbound_pci_buffer_overflow",
+	"outbound_pci_stalled_rd",
+	"outbound_pci_stalled_wr",
+	"outbound_pci_stalled_rd_events",
+	"outbound_pci_stalled_wr_events",
+	"rx_wqe_errors",
+	"rx_phy_discard_packets",
+	"tx_phy_discard_packets",
+};
+
+void
+jitter_xstats_init(struct jitter_lcore_ctx *ctx, uint16_t port_id)
+{
+	unsigned int i;
+	uint64_t values[1];
+
+	ctx->xstats.count = 0;
+
+	for (i = 0; i < RTE_DIM(jitter_xstat_names); i++) {
+		uint64_t id;
+		int ret;
+
+		if (ctx->xstats.count >= JITTER_MAX_XSTATS)
+			break;
+
+		ret = rte_eth_xstats_get_id_by_name(port_id,
+						    jitter_xstat_names[i],
+						    &id);
+		if (ret != 0)
+			continue;
+
+		ctx->xstats.ids[ctx->xstats.count] = id;
+		strlcpy(ctx->xstats.names[ctx->xstats.count],
+			jitter_xstat_names[i],
+			RTE_ETH_XSTATS_NAME_SIZE);
+
+		/* Seed baseline */
+		if (rte_eth_xstats_get_by_id(port_id, &id, values, 1) == 1)
+			ctx->xstats.last_values[ctx->xstats.count] = values[0];
+
+		ctx->xstats.count++;
+	}
+
+	if (ctx->xstats.count > 0)
+		TESTPMD_LOG(DEBUG, "Jitter: discovered %u xstats for port %u\n",
+			    ctx->xstats.count, port_id);
 }
 
 void
