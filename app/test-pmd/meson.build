@@ -19,6 +19,11 @@ sources = files(
         'icmpecho.c',
         'ieee1588fwd.c',
         'iofwd.c',
+        'jitter.c',
+        'jitter_msr.c',
+        'jitter_pcie.c',
+        'jitter_pmc.c',
+        'jitter_report.c',
         'macfwd.c',
         'macswap.c',
         'noisy_vnf.c',
@@ -35,7 +40,7 @@ if dpdk_conf.has('RTE_HAS_JANSSON')
     ext_deps += jansson_dep
 endif
 
-deps += ['ethdev', 'cmdline']
+deps += ['ethdev', 'cmdline', 'bus_pci']
 if dpdk_conf.has('RTE_CRYPTO_SCHEDULER')
     deps += 'crypto_scheduler'
 endif

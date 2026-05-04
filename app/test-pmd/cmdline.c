@@ -63,6 +63,7 @@
 #include <rte_pmd_bnxt.h>
 #endif
 #include "testpmd.h"
+#include "jitter.h"
 #include "cmdline_cman.h"
 #include "cmdline_mtr.h"
 #include "cmdline_tm.h"
@@ -13561,6 +13562,142 @@ static cmdline_parse_inst_t cmd_set_dev_led = {
 	},
 };
 
+/* *** JITTER SHOW / DUMP / RESET *** */
+struct cmd_jitter_result {
+	cmdline_fixed_string_t jitter;
+	cmdline_fixed_string_t action;
+};
+
+static void cmd_jitter_parsed(void *parsed_result,
+			      __rte_unused struct cmdline *cl,
+			      __rte_unused void *data)
+{
+	struct cmd_jitter_result *res = parsed_result;
+
+	if (!jitter_enabled) {
+		fprintf(stderr, "Jitter instrumentation is not enabled."
+			" Use --jitter-enable.\n");
+		return;
+	}
+
+	if (!strcmp(res->action, "show"))
+		jitter_show_summary();
+	else if (!strcmp(res->action, "dump"))
+		jitter_dump(jitter_output_path[0] ? jitter_output_path : NULL,
+			    jitter_output_format);
+	else if (!strcmp(res->action, "reset"))
+		jitter_reset_all();
+}
+
+static cmdline_parse_token_string_t cmd_jitter_jitter =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_result, jitter, "jitter");
+static cmdline_parse_token_string_t cmd_jitter_action =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_result, action,
+				 "show#dump#reset");
+
+static cmdline_parse_inst_t cmd_jitter = {
+	.f = cmd_jitter_parsed,
+	.data = NULL,
+	.help_str = "jitter show|dump|reset: "
+		"Show summary, dump records, or reset jitter data",
+	.tokens = {
+		(void *)&cmd_jitter_jitter,
+		(void *)&cmd_jitter_action,
+		NULL,
+	},
+};
+
+/* *** JITTER THRESHOLD <us> *** */
+struct cmd_jitter_threshold_result {
+	cmdline_fixed_string_t jitter;
+	cmdline_fixed_string_t threshold;
+	uint32_t us;
+};
+
+static void cmd_jitter_threshold_parsed(void *parsed_result,
+					__rte_unused struct cmdline *cl,
+					__rte_unused void *data)
+{
+	struct cmd_jitter_threshold_result *res = parsed_result;
+
+	if (!jitter_enabled) {
+		fprintf(stderr, "Jitter instrumentation is not enabled."
+			" Use --jitter-enable.\n");
+		return;
+	}
+
+	jitter_set_threshold_us(res->us);
+	printf("Jitter threshold set to %u us\n", res->us);
+}
+
+static cmdline_parse_token_string_t cmd_jitter_threshold_jitter =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_threshold_result,
+				 jitter, "jitter");
+static cmdline_parse_token_string_t cmd_jitter_threshold_threshold =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_threshold_result,
+				 threshold, "threshold");
+static cmdline_parse_token_num_t cmd_jitter_threshold_us =
+	TOKEN_NUM_INITIALIZER(struct cmd_jitter_threshold_result,
+			      us, RTE_UINT32);
+
+static cmdline_parse_inst_t cmd_jitter_threshold = {
+	.f = cmd_jitter_threshold_parsed,
+	.data = NULL,
+	.help_str = "jitter threshold <microseconds>: "
+		"Set jitter anomaly threshold",
+	.tokens = {
+		(void *)&cmd_jitter_threshold_jitter,
+		(void *)&cmd_jitter_threshold_threshold,
+		(void *)&cmd_jitter_threshold_us,
+		NULL,
+	},
+};
+
+/* *** JITTER SET OUTPUT <path> *** */
+struct cmd_jitter_set_output_result {
+	cmdline_fixed_string_t jitter;
+	cmdline_fixed_string_t set;
+	cmdline_fixed_string_t output;
+	cmdline_fixed_string_t path;
+};
+
+static void cmd_jitter_set_output_parsed(void *parsed_result,
+					 __rte_unused struct cmdline *cl,
+					 __rte_unused void *data)
+{
+	struct cmd_jitter_set_output_result *res = parsed_result;
+
+	strlcpy(jitter_output_path, res->path, sizeof(jitter_output_path));
+	printf("Jitter output set to %s\n", jitter_output_path);
+}
+
+static cmdline_parse_token_string_t cmd_jitter_set_output_jitter =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_set_output_result,
+				 jitter, "jitter");
+static cmdline_parse_token_string_t cmd_jitter_set_output_set =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_set_output_result,
+				 set, "set");
+static cmdline_parse_token_string_t cmd_jitter_set_output_output =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_set_output_result,
+				 output, "output");
+static cmdline_parse_token_string_t cmd_jitter_set_output_path =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_set_output_result,
+				 path, NULL);
+
+static cmdline_parse_inst_t cmd_jitter_set_output = {
+	.f = cmd_jitter_set_output_parsed,
+	.data = NULL,
+	.help_str = "jitter set output <path>: "
+		"Set jitter output file path",
+	.tokens = {
+		(void *)&cmd_jitter_set_output_jitter,
+		(void *)&cmd_jitter_set_output_set,
+		(void *)&cmd_jitter_set_output_output,
+		(void *)&cmd_jitter_set_output_path,
+		NULL,
+	},
+};
+
 /* ******************************************************************************** */
 
 /* list of instructions */
@@ -13806,6 +13943,9 @@ static cmdline_parse_ctx_t builtin_ctx[] = {
 	&cmd_set_port_cman_config,
 	&cmd_config_tx_affinity_map,
 	&cmd_set_dev_led,
+	&cmd_jitter,
+	&cmd_jitter_threshold,
+	&cmd_jitter_set_output,
 	NULL,
 };
 

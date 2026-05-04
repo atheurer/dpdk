@@ -166,6 +166,8 @@ extern const struct rss_type_info rss_type_table[];
  */
 extern char dynf_names[64][RTE_MBUF_DYN_NAMESIZE];
 
+struct jitter_lcore_ctx;
+
 /**
  * The data structure associated with a forwarding stream between a receive
  * port/queue and a transmit port/queue.
@@ -201,6 +203,7 @@ struct fwd_stream {
 	struct fwd_lcore *lcore; /**< Lcore being scheduled. */
 	/**< Rx queue information for recycling mbufs */
 	struct rte_eth_recycle_rxq_info recycle_rxq_info;
+	struct jitter_lcore_ctx *jitter_ctx;
 };
 
 /**

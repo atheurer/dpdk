@@ -34,6 +34,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 /*
  * Forwarding of packets in I/O mode.
@@ -45,16 +46,23 @@ static bool
 pkt_burst_io_forward(struct fwd_stream *fs)
 {
 	struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
+	struct jitter_iter_state js;
 	uint16_t nb_rx;
+
+	jitter_iter_begin(fs->jitter_ctx, &js, fs->rx_port, fs->rx_queue);
 
 	/*
 	 * Receive a burst of packets and forward them.
 	 */
 	nb_rx = common_fwd_stream_receive(fs, pkts_burst, nb_pkt_per_burst);
-	if (unlikely(nb_rx == 0))
+	if (unlikely(nb_rx == 0)) {
+		jitter_iter_end(fs->jitter_ctx, &js, 0);
 		return false;
+	}
 
 	common_fwd_stream_transmit(fs, pkts_burst, nb_rx);
+
+	jitter_iter_end(fs->jitter_ctx, &js, nb_rx);
 
 	return true;
 }

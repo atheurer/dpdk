@@ -39,6 +39,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "jitter.h"
 
 enum {
 #define TESTPMD_OPT_AUTO_START "auto-start"
@@ -251,6 +252,20 @@ enum {
 	TESTPMD_OPT_NUM_PROCS_NUM,
 #define TESTPMD_OPT_PROC_ID "proc-id"
 	TESTPMD_OPT_PROC_ID_NUM,
+#define TESTPMD_OPT_JITTER_ENABLE "jitter-enable"
+	TESTPMD_OPT_JITTER_ENABLE_NUM,
+#define TESTPMD_OPT_JITTER_THRESHOLD_US "jitter-threshold-us"
+	TESTPMD_OPT_JITTER_THRESHOLD_US_NUM,
+#define TESTPMD_OPT_JITTER_RECORD_COUNT "jitter-record-count"
+	TESTPMD_OPT_JITTER_RECORD_COUNT_NUM,
+#define TESTPMD_OPT_JITTER_MSR "jitter-msr"
+	TESTPMD_OPT_JITTER_MSR_NUM,
+#define TESTPMD_OPT_JITTER_AER "jitter-aer"
+	TESTPMD_OPT_JITTER_AER_NUM,
+#define TESTPMD_OPT_JITTER_OUTPUT "jitter-output"
+	TESTPMD_OPT_JITTER_OUTPUT_NUM,
+#define TESTPMD_OPT_JITTER_OUTPUT_FORMAT "jitter-output-format"
+	TESTPMD_OPT_JITTER_OUTPUT_FORMAT_NUM,
 
 	TESTPMD_OPT_LONG_MAX_NUM
 };
@@ -375,6 +390,13 @@ static const struct option long_options[] = {
 	NO_ARG(TESTPMD_OPT_RECORD_BURST_STATS),
 	REQUIRED_ARG(TESTPMD_OPT_NUM_PROCS),
 	REQUIRED_ARG(TESTPMD_OPT_PROC_ID),
+	NO_ARG(TESTPMD_OPT_JITTER_ENABLE),
+	REQUIRED_ARG(TESTPMD_OPT_JITTER_THRESHOLD_US),
+	REQUIRED_ARG(TESTPMD_OPT_JITTER_RECORD_COUNT),
+	NO_ARG(TESTPMD_OPT_JITTER_MSR),
+	NO_ARG(TESTPMD_OPT_JITTER_AER),
+	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT),
+	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT_FORMAT),
 	{ 0, 0, NULL, 0 }
 };
 #undef NO_ARG
@@ -542,6 +564,17 @@ usage(char* progname)
 	       "enabled\n");
 	printf("  --record-core-cycles: enable measurement of CPU cycles.\n");
 	printf("  --record-burst-stats: enable display of RX and TX bursts.\n");
+	printf("  --jitter-enable: enable per-iteration jitter instrumentation.\n");
+	printf("  --jitter-threshold-us=N: anomaly threshold in microseconds"
+	       " (default 100).\n");
+	printf("  --jitter-record-count=N: per-lcore anomaly ring buffer size"
+	       " (default 1024).\n");
+	printf("  --jitter-msr: enable MSR reads (SMI count, APERF/MPERF).\n");
+	printf("  --jitter-aer: enable PCIe AER register reads on anomaly.\n");
+	printf("  --jitter-output=PATH: anomaly dump output file"
+	       " (default stderr).\n");
+	printf("  --jitter-output-format=FMT: text or csv"
+	       " (default text).\n");
 	printf("  --hairpin-mode=0xXX: bitmask set the hairpin port mode.\n"
 	       "    0x10 - explicit Tx rule, 0x02 - hairpin ports paired\n"
 	       "    0x01 - hairpin ports loop, 0x00 - hairpin port self\n");
@@ -1725,6 +1758,44 @@ launch_args_parse(int argc, char** argv)
 			break;
 		case TESTPMD_OPT_PROC_ID_NUM:
 			proc_id = atoi(optarg);
+			break;
+		case TESTPMD_OPT_JITTER_ENABLE_NUM:
+			jitter_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_THRESHOLD_US_NUM:
+			n = atoi(optarg);
+			if (n > 0)
+				jitter_set_threshold_us(n);
+			else
+				rte_exit(EXIT_FAILURE,
+					 "jitter-threshold-us must be > 0\n");
+			break;
+		case TESTPMD_OPT_JITTER_RECORD_COUNT_NUM:
+			n = atoi(optarg);
+			if (n > 0)
+				jitter_record_count = n;
+			else
+				rte_exit(EXIT_FAILURE,
+					 "jitter-record-count must be > 0\n");
+			break;
+		case TESTPMD_OPT_JITTER_MSR_NUM:
+			jitter_msr_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_AER_NUM:
+			jitter_aer_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_OUTPUT_NUM:
+			strlcpy(jitter_output_path, optarg,
+				sizeof(jitter_output_path));
+			break;
+		case TESTPMD_OPT_JITTER_OUTPUT_FORMAT_NUM:
+			if (strcmp(optarg, "text") != 0 &&
+			    strcmp(optarg, "csv") != 0)
+				rte_exit(EXIT_FAILURE,
+					 "jitter-output-format must be"
+					 " 'text' or 'csv'\n");
+			strlcpy(jitter_output_format, optarg,
+				sizeof(jitter_output_format));
 			break;
 		default:
 			usage(argv[0]);

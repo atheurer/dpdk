@@ -74,6 +74,7 @@
 #endif
 
 #include "testpmd.h"
+#include "jitter.h"
 
 #ifndef MAP_HUGETLB
 /* FreeBSD may not have MAP_HUGETLB (in fact, it probably doesn't) */
@@ -2486,6 +2487,26 @@ start_packet_forwarding(int with_tx_first)
 			stream_init(fwd_streams[i]);
 	}
 
+	if (jitter_enabled) {
+		lcoreid_t lc_id;
+
+		for (lc_id = 0; lc_id < cur_fwd_config.nb_fwd_lcores;
+		     lc_id++) {
+			struct fwd_lcore *fc = fwd_lcores[lc_id];
+			unsigned int cpu_id = fwd_lcores_cpuids[fc->cpuid_idx];
+			streamid_t sm_id;
+
+			for (sm_id = 0; sm_id < fc->stream_nb; sm_id++) {
+				struct fwd_stream *fs =
+					fwd_streams[fc->stream_idx + sm_id];
+				if (fs->disabled)
+					continue;
+				fs->jitter_ctx = jitter_lcore_init(
+					cpu_id, fs->rx_port, fs->rx_queue);
+			}
+		}
+	}
+
 	port_fwd_begin = cur_fwd_config.fwd_eng->port_fwd_begin;
 	if (port_fwd_begin != NULL) {
 		for (i = 0; i < cur_fwd_config.nb_fwd_ports; i++) {
@@ -3575,6 +3596,13 @@ pmd_test_exit(void)
 	if (test_done == 0)
 		stop_packet_forwarding();
 
+	if (jitter_enabled) {
+		jitter_show_summary();
+		jitter_dump(jitter_output_path[0] ? jitter_output_path : NULL,
+			    jitter_output_format);
+		jitter_global_fini();
+	}
+
 #ifndef RTE_EXEC_ENV_WINDOWS
 	for (i = 0 ; i < RTE_DIM(mempools) ; i++) {
 		if (mempools[i]) {
@@ -4463,6 +4491,11 @@ main(int argc, char** argv)
 
 	if (record_core_cycles)
 		rte_lcore_register_usage_cb(lcore_usage_callback);
+
+	if (jitter_enabled) {
+		if (jitter_global_init() != 0)
+			fprintf(stderr, "Warning: jitter init failed\n");
+	}
 
 	if (init_cmdline() != 0)
 		rte_exit(EXIT_FAILURE,
