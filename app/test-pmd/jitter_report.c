@@ -154,10 +154,10 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		for (i = 0; i < r->irq_count && i < ctx->irq_count; i++) {
 			if (r->irq_deltas[i] != 0) {
 				if (!any) {
-					fprintf(f, "  Interrupts:\n");
+					fprintf(f, "    Interrupts:\n");
 					any = 1;
 				}
-				fprintf(f, "    %-8s %" PRIu64 "\n",
+				fprintf(f, "      %-8s %" PRIu64 "\n",
 					ctx->irqs[i].name,
 					r->irq_deltas[i]);
 			}
@@ -169,10 +169,10 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		for (i = 0; i < r->xstat_count && i < ctx->xstats.count; i++) {
 			if (r->xstat_deltas[i] != 0) {
 				if (!any) {
-					fprintf(f, "  PMD xstats:\n");
+					fprintf(f, "    PMD xstats:\n");
 					any = 1;
 				}
-				fprintf(f, "    %-32s %" PRIu64 "\n",
+				fprintf(f, "      %-32s %" PRIu64 "\n",
 					ctx->xstats.names[i],
 					r->xstat_deltas[i]);
 			}
