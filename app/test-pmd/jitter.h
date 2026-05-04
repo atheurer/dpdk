@@ -168,6 +168,7 @@ void jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 
 /* Reporting */
 int jitter_dump(const char *path, const char *format);
+void jitter_dump_top(uint32_t n);
 void jitter_show_summary(void);
 void jitter_reset_all(void);
 void jitter_set_threshold_us(uint64_t us);

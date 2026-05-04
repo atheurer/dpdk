@@ -250,6 +250,86 @@ jitter_dump(const char *path, const char *format)
 	return 0;
 }
 
+struct jitter_top_entry {
+	const struct jitter_record *r;
+	const struct jitter_lcore_ctx *ctx;
+	uint32_t idx;
+};
+
+static int
+top_entry_cmp(const void *a, const void *b)
+{
+	const struct jitter_top_entry *ea = a;
+	const struct jitter_top_entry *eb = b;
+
+	if (eb->r->tsc_delta > ea->r->tsc_delta)
+		return 1;
+	if (eb->r->tsc_delta < ea->r->tsc_delta)
+		return -1;
+	return 0;
+}
+
+void
+jitter_dump_top(uint32_t n)
+{
+	struct jitter_top_entry *entries;
+	uint32_t total = 0, cap = 0;
+	unsigned int lcore_id;
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
+
+		if (ctx == NULL || ctx->total_anomalies == 0)
+			continue;
+		if (ctx->record_head > ctx->record_capacity)
+			cap += ctx->record_capacity;
+		else
+			cap += ctx->record_head;
+	}
+
+	if (cap == 0) {
+		fprintf(stdout, "No anomaly records captured.\n");
+		return;
+	}
+
+	entries = malloc(sizeof(*entries) * cap);
+	if (entries == NULL)
+		return;
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
+		uint32_t start, i;
+
+		if (ctx == NULL || ctx->total_anomalies == 0)
+			continue;
+
+		if (ctx->record_head > ctx->record_capacity)
+			start = ctx->record_head - ctx->record_capacity;
+		else
+			start = 0;
+
+		for (i = start; i < ctx->record_head; i++) {
+			entries[total].r =
+				&ctx->records[i % ctx->record_capacity];
+			entries[total].ctx = ctx;
+			entries[total].idx = i;
+			total++;
+		}
+	}
+
+	qsort(entries, total, sizeof(entries[0]), top_entry_cmp);
+
+	if (n > total)
+		n = total;
+
+	fprintf(stdout, "\n--- Top %u anomalies by duration ---\n\n", n);
+	for (uint32_t i = 0; i < n; i++)
+		dump_record_text(stdout, entries[i].r,
+				 entries[i].idx, entries[i].ctx);
+
+	free(entries);
+}
+
 void
 jitter_show_summary(void)
 {

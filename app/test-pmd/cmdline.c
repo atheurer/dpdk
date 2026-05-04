@@ -13698,6 +13698,80 @@ static cmdline_parse_inst_t cmd_jitter_set_output = {
 	},
 };
 
+/* *** JITTER TOP [N] *** */
+struct cmd_jitter_top_result {
+	cmdline_fixed_string_t jitter;
+	cmdline_fixed_string_t top;
+};
+
+static void cmd_jitter_top_parsed(__rte_unused void *parsed_result,
+				  __rte_unused struct cmdline *cl,
+				  __rte_unused void *data)
+{
+	if (!jitter_enabled) {
+		fprintf(stderr, "Jitter instrumentation is not enabled."
+			" Use --jitter-enable.\n");
+		return;
+	}
+	jitter_dump_top(1);
+}
+
+static cmdline_parse_token_string_t cmd_jitter_top_jitter =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_top_result, jitter, "jitter");
+static cmdline_parse_token_string_t cmd_jitter_top_top =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_top_result, top, "top");
+
+static cmdline_parse_inst_t cmd_jitter_top = {
+	.f = cmd_jitter_top_parsed,
+	.data = NULL,
+	.help_str = "jitter top: Show the longest anomaly",
+	.tokens = {
+		(void *)&cmd_jitter_top_jitter,
+		(void *)&cmd_jitter_top_top,
+		NULL,
+	},
+};
+
+/* *** JITTER TOP N *** */
+struct cmd_jitter_top_n_result {
+	cmdline_fixed_string_t jitter;
+	cmdline_fixed_string_t top;
+	uint32_t n;
+};
+
+static void cmd_jitter_top_n_parsed(void *parsed_result,
+				    __rte_unused struct cmdline *cl,
+				    __rte_unused void *data)
+{
+	struct cmd_jitter_top_n_result *res = parsed_result;
+
+	if (!jitter_enabled) {
+		fprintf(stderr, "Jitter instrumentation is not enabled."
+			" Use --jitter-enable.\n");
+		return;
+	}
+	jitter_dump_top(res->n > 0 ? res->n : 1);
+}
+
+static cmdline_parse_token_string_t cmd_jitter_top_n_jitter =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_top_n_result, jitter, "jitter");
+static cmdline_parse_token_string_t cmd_jitter_top_n_top =
+	TOKEN_STRING_INITIALIZER(struct cmd_jitter_top_n_result, top, "top");
+static cmdline_parse_token_num_t cmd_jitter_top_n_n =
+	TOKEN_NUM_INITIALIZER(struct cmd_jitter_top_n_result, n, RTE_UINT32);
+
+static cmdline_parse_inst_t cmd_jitter_top_n = {
+	.f = cmd_jitter_top_n_parsed,
+	.data = NULL,
+	.help_str = "jitter top <N>: Show the N longest anomalies",
+	.tokens = {
+		(void *)&cmd_jitter_top_n_jitter,
+		(void *)&cmd_jitter_top_n_top,
+		(void *)&cmd_jitter_top_n_n,
+		NULL,
+	},
+};
+
 /* ******************************************************************************** */
 
 /* list of instructions */
@@ -13946,6 +14020,8 @@ static cmdline_parse_ctx_t builtin_ctx[] = {
 	&cmd_jitter,
 	&cmd_jitter_threshold,
 	&cmd_jitter_set_output,
+	&cmd_jitter_top_n,
+	&cmd_jitter_top,
 	NULL,
 };
 
