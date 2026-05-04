@@ -81,6 +81,25 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	ctx->pmc_cycles_page = p;
 	ctx->pmc_cycles_fd = fd_cyc;
 
+	attr.config = PERF_COUNT_HW_REF_CPU_CYCLES;
+	int fd_ref = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
+	if (fd_ref < 0) {
+		TESTPMD_LOG(WARNING, "perf_event_open(REF_CYCLES) failed: %s "
+			    "(ref_cycles disabled)\n", strerror(errno));
+		ctx->pmc_ref_cycles_page = NULL;
+		ctx->pmc_ref_cycles_fd = 0;
+	} else {
+		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_ref, 0);
+		if (p == MAP_FAILED) {
+			close(fd_ref);
+			ctx->pmc_ref_cycles_page = NULL;
+			ctx->pmc_ref_cycles_fd = 0;
+		} else {
+			ctx->pmc_ref_cycles_page = p;
+			ctx->pmc_ref_cycles_fd = fd_ref;
+		}
+	}
+
 	ctx->pmc_enabled = 1;
 	return 0;
 }
@@ -103,6 +122,14 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 	if (ctx->pmc_cycles_fd > 0) {
 		close(ctx->pmc_cycles_fd);
 		ctx->pmc_cycles_fd = 0;
+	}
+	if (ctx->pmc_ref_cycles_page != NULL) {
+		munmap(ctx->pmc_ref_cycles_page, 4096);
+		ctx->pmc_ref_cycles_page = NULL;
+	}
+	if (ctx->pmc_ref_cycles_fd > 0) {
+		close(ctx->pmc_ref_cycles_fd);
+		ctx->pmc_ref_cycles_fd = 0;
 	}
 	ctx->pmc_enabled = 0;
 }

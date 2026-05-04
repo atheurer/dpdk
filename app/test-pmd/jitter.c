@@ -208,6 +208,11 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		uint64_t cyc_end = jitter_rdpmc_read(ctx->pmc_cycles_page);
 		r->inst_retired_delta = inst_end - st->inst_start;
 		r->cycles_unhalted_delta = cyc_end - st->cycles_start;
+		if (ctx->pmc_ref_cycles_page != NULL) {
+			uint64_t ref_end = jitter_rdpmc_read(
+				ctx->pmc_ref_cycles_page);
+			r->ref_cycles_delta = ref_end - st->ref_cycles_start;
+		}
 	}
 #endif
 

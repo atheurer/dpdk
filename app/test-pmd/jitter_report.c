@@ -37,7 +37,14 @@ jitter_classify(const struct jitter_record *r)
 	if (r->nonvoluntary_cs_delta > 0 || r->voluntary_cs_delta > 0)
 		return JITTER_CLASS_KERNEL_PREEMPTION;
 
-	if (r->mperf_delta > 0) {
+	/* Frequency throttle: check hot-path ref_cycles first, fall back to
+	 * cold-path APERF/MPERF. Ratio < 0.80 means significant throttling. */
+	if (r->ref_cycles_delta > 0 && r->cycles_unhalted_delta > 0) {
+		uint64_t ratio_x1000 = (r->cycles_unhalted_delta * 1000) /
+			r->ref_cycles_delta;
+		if (ratio_x1000 < 800)
+			return JITTER_CLASS_FREQ_THROTTLE;
+	} else if (r->mperf_delta > 0) {
 		uint64_t ratio_x1000 = (r->aperf_delta * 1000) / r->mperf_delta;
 		if (ratio_x1000 < 800)
 			return JITTER_CLASS_FREQ_THROTTLE;
@@ -86,12 +93,20 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		r->inst_retired_delta);
 	fprintf(f, "    cycles_unhalted: %" PRIu64 "\n",
 		r->cycles_unhalted_delta);
+	fprintf(f, "    ref_cycles:      %" PRIu64 "\n",
+		r->ref_cycles_delta);
 	if (r->inst_retired_delta > 0)
 		fprintf(f, "    cycles/inst:     %.2f\n",
 			(double)r->cycles_unhalted_delta /
 			(double)r->inst_retired_delta);
 	else
 		fprintf(f, "    cycles/inst:     N/A\n");
+	if (r->ref_cycles_delta > 0)
+		fprintf(f, "    freq ratio:      %.2f\n",
+			(double)r->cycles_unhalted_delta /
+			(double)r->ref_cycles_delta);
+	else
+		fprintf(f, "    freq ratio:      N/A\n");
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	fprintf(f, "  Cold-path:\n");
