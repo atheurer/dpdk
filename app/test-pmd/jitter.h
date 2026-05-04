@@ -17,7 +17,7 @@
 #include <linux/perf_event.h>
 #endif
 
-#define JITTER_MAX_XSTATS 32
+#define JITTER_MAX_XSTATS 64
 
 enum jitter_class {
 	JITTER_CLASS_UNKNOWN = 0,

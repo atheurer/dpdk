@@ -2,6 +2,10 @@
  * Copyright(c) 2024 Red Hat, Inc.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -304,72 +308,105 @@ jitter_read_ctxt_switches(uint64_t *vcs, uint64_t *nvcs)
 	return 0;
 }
 
-static const char * const jitter_xstat_names[] = {
-	/* ice PMD */
-	"rx_dropped_packets",
-	"tx_link_down_dropped",
-	"rx_crc_errors",
-	"rx_illegal_byte_errors",
-	"rx_error_bytes",
-	"mac_local_errors",
-	"mac_remote_errors",
-	"tx_xon_packets",
-	"rx_xon_packets",
-	"tx_xoff_packets",
-	"rx_xoff_packets",
-	"rx_undersized_errors",
-	"rx_oversize_errors",
-	"rx_jabber_errors",
-	/* mlx5 PMD */
-	"rx_out_of_buffer",
-	"dev_out_of_buffer",
-	"rx_phy_crc_errors",
-	"rx_phy_symbol_errors",
-	"tx_phy_errors",
-	"rx_pci_signal_integrity",
-	"tx_pci_signal_integrity",
-	"outbound_pci_buffer_overflow",
-	"outbound_pci_stalled_rd",
-	"outbound_pci_stalled_wr",
-	"outbound_pci_stalled_rd_events",
-	"outbound_pci_stalled_wr_events",
-	"rx_wqe_errors",
-	"rx_phy_discard_packets",
-	"tx_phy_discard_packets",
+static const char * const jitter_xstat_positive[] = {
+	"error", "err",
+	"drop", "discard",
+	"miss",
+	"xon", "xoff",
+	"pci",
+	"stall",
+	"overflow",
+	"out_of_buffer", "nombuf",
+	"crc",
+	"timeout",
+	"dma_err",
 };
+
+static const char * const jitter_xstat_negative[] = {
+	"ipsec",
+	"crypto",
+	"filter_add",
+	"filter_remove",
+	"filter_miss",
+	"mac_filter",
+	"vlan_tag",
+	"tag_filter",
+	"ttl_zero",
+	"tso",
+	"too_many_segs",
+	"match_crc",
+	"gft_filter",
+	"security",
+	"secdrp",
+	"sa_hit",
+	"cls_drop",
+};
+
+static int
+jitter_xstat_name_match(const char *name)
+{
+	unsigned int i;
+	int matched = 0;
+
+	for (i = 0; i < RTE_DIM(jitter_xstat_positive); i++) {
+		if (strcasestr(name, jitter_xstat_positive[i]) != NULL) {
+			matched = 1;
+			break;
+		}
+	}
+	if (!matched)
+		return 0;
+
+	for (i = 0; i < RTE_DIM(jitter_xstat_negative); i++) {
+		if (strcasestr(name, jitter_xstat_negative[i]) != NULL)
+			return 0;
+	}
+	return 1;
+}
 
 void
 jitter_xstats_init(struct jitter_lcore_ctx *ctx, uint16_t port_id)
 {
-	unsigned int i;
-	uint64_t values[1];
+	struct rte_eth_xstat_name *names;
+	struct rte_eth_xstat *values;
+	int nb_xstats, i;
 
 	ctx->xstats.count = 0;
 
-	for (i = 0; i < RTE_DIM(jitter_xstat_names); i++) {
-		uint64_t id;
-		int ret;
+	nb_xstats = rte_eth_xstats_get_names(port_id, NULL, 0);
+	if (nb_xstats <= 0)
+		return;
 
+	names = malloc(sizeof(*names) * nb_xstats);
+	values = malloc(sizeof(*values) * nb_xstats);
+	if (names == NULL || values == NULL) {
+		free(names);
+		free(values);
+		return;
+	}
+
+	if (rte_eth_xstats_get_names(port_id, names, nb_xstats) != nb_xstats ||
+	    rte_eth_xstats_get(port_id, values, nb_xstats) != nb_xstats) {
+		free(names);
+		free(values);
+		return;
+	}
+
+	for (i = 0; i < nb_xstats; i++) {
 		if (ctx->xstats.count >= JITTER_MAX_XSTATS)
 			break;
-
-		ret = rte_eth_xstats_get_id_by_name(port_id,
-						    jitter_xstat_names[i],
-						    &id);
-		if (ret != 0)
+		if (!jitter_xstat_name_match(names[i].name))
 			continue;
 
-		ctx->xstats.ids[ctx->xstats.count] = id;
+		ctx->xstats.ids[ctx->xstats.count] = values[i].id;
 		strlcpy(ctx->xstats.names[ctx->xstats.count],
-			jitter_xstat_names[i],
-			RTE_ETH_XSTATS_NAME_SIZE);
-
-		/* Seed baseline */
-		if (rte_eth_xstats_get_by_id(port_id, &id, values, 1) == 1)
-			ctx->xstats.last_values[ctx->xstats.count] = values[0];
-
+			names[i].name, RTE_ETH_XSTATS_NAME_SIZE);
+		ctx->xstats.last_values[ctx->xstats.count] = values[i].value;
 		ctx->xstats.count++;
 	}
+
+	free(names);
+	free(values);
 
 	if (ctx->xstats.count > 0) {
 		uint16_t j;
