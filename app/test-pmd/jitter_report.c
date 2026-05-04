@@ -126,28 +126,32 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	fprintf(f, "  Cold-path:\n");
-	fprintf(f, "    smi_count_delta:        %" PRIu64 "\n",
-		r->smi_count_delta);
-	fprintf(f, "    voluntary_cs_delta:     %" PRIu64 "\n",
+	fprintf(f, "    Scheduling:\n");
+	fprintf(f, "      voluntary_cs_delta:     %" PRIu64 "\n",
 		r->voluntary_cs_delta);
-	fprintf(f, "    nonvoluntary_cs_delta:  %" PRIu64 "\n",
+	fprintf(f, "      nonvoluntary_cs_delta:  %" PRIu64 "\n",
 		r->nonvoluntary_cs_delta);
+	fprintf(f, "    CPU/Power:\n");
+	fprintf(f, "      smi_count_delta:        %" PRIu64 "\n",
+		r->smi_count_delta);
 	if (r->mperf_delta > 0)
-		fprintf(f, "    aperf/mperf ratio:      %.2f\n",
+		fprintf(f, "      aperf/mperf ratio:      %.2f\n",
 			(double)r->aperf_delta / (double)r->mperf_delta);
 	else
-		fprintf(f, "    aperf/mperf ratio:      N/A\n");
-	fprintf(f, "    AER correctable delta:  %u\n",
+		fprintf(f, "      aperf/mperf ratio:      N/A\n");
+	fprintf(f, "    PCIe/AER:\n");
+	fprintf(f, "      correctable delta:      %u\n",
 		r->aer_correctable_delta);
-	fprintf(f, "    AER uncorrectable delta: %u\n",
+	fprintf(f, "      uncorrectable delta:    %u\n",
 		r->aer_uncorrectable_delta);
-	fprintf(f, "    rx_missed_delta:        %" PRIu64 "\n",
+	fprintf(f, "    NIC stats:\n");
+	fprintf(f, "      rx_missed_delta:        %" PRIu64 "\n",
 		r->rx_missed_delta);
-	fprintf(f, "    rx_nombuf_delta:        %" PRIu64 "\n",
+	fprintf(f, "      rx_nombuf_delta:        %" PRIu64 "\n",
 		r->rx_nombuf_delta);
-	fprintf(f, "    ierrors_delta:           %" PRIu64 "\n",
+	fprintf(f, "      ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
-	fprintf(f, "    mempool_avail:          %u\n", r->mempool_avail);
+	fprintf(f, "      mempool_avail:          %u\n", r->mempool_avail);
 	if (r->irq_count > 0) {
 		int any = 0;
 
