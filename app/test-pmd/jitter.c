@@ -47,7 +47,7 @@ jitter_global_init(void)
 	jitter_threshold_cycles =
 		(rte_get_tsc_hz() * jitter_threshold_us_val) / 1000000ULL;
 
-	TESTPMD_LOG(DEBUG, "Jitter instrumentation enabled: "
+	TESTPMD_LOG(NOTICE, "Jitter instrumentation enabled: "
 		    "threshold=%" PRIu64 " us (%" PRIu64 " cycles), "
 		    "records=%u\n",
 		    jitter_threshold_us_val, jitter_threshold_cycles,
@@ -351,9 +351,16 @@ jitter_xstats_init(struct jitter_lcore_ctx *ctx, uint16_t port_id)
 		ctx->xstats.count++;
 	}
 
-	if (ctx->xstats.count > 0)
-		TESTPMD_LOG(DEBUG, "Jitter: discovered %u xstats for port %u\n",
+	if (ctx->xstats.count > 0) {
+		uint16_t j;
+
+		TESTPMD_LOG(NOTICE, "Jitter: discovered %u xstats for port %u:\n",
 			    ctx->xstats.count, port_id);
+		for (j = 0; j < ctx->xstats.count; j++)
+			TESTPMD_LOG(NOTICE, "  xstat[%u]: %s (id=%" PRIu64 ")\n",
+				    j, ctx->xstats.names[j],
+				    ctx->xstats.ids[j]);
+	}
 }
 
 void
@@ -369,7 +376,7 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 			TESTPMD_LOG(WARNING, "PMC setup failed for lcore %u "
 				    "(rdpmc disabled)\n", ctx->lcore_id);
 		else
-			TESTPMD_LOG(DEBUG, "PMC setup OK for lcore %u cpu %d\n",
+			TESTPMD_LOG(NOTICE, "PMC setup OK for lcore %u cpu %d\n",
 				    ctx->lcore_id, cpu);
 
 		if (jitter_msr_enabled) {
@@ -382,7 +389,7 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 					ctx->msr_fd, MSR_IA32_APERF);
 				ctx->last_mperf = jitter_msr_read(
 					ctx->msr_fd, MSR_IA32_MPERF);
-				TESTPMD_LOG(DEBUG, "MSR setup OK for lcore %u "
+				TESTPMD_LOG(NOTICE, "MSR setup OK for lcore %u "
 					    "cpu %d\n", ctx->lcore_id, cpu);
 			} else {
 				TESTPMD_LOG(WARNING, "MSR open failed for "
