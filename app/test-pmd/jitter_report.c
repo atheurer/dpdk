@@ -111,12 +111,20 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "    ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
 	fprintf(f, "    mempool_avail:          %u\n", r->mempool_avail);
-	if (ctx->xstats.count > 0) {
-		fprintf(f, "  PMD xstats:\n");
-		for (i = 0; i < ctx->xstats.count; i++)
-			fprintf(f, "    %-32s %" PRIu64 "\n",
-				ctx->xstats.names[i],
-				i < r->xstat_count ? r->xstat_deltas[i] : 0UL);
+	if (r->xstat_count > 0) {
+		int any = 0;
+
+		for (i = 0; i < r->xstat_count && i < ctx->xstats.count; i++) {
+			if (r->xstat_deltas[i] != 0) {
+				if (!any) {
+					fprintf(f, "  PMD xstats:\n");
+					any = 1;
+				}
+				fprintf(f, "    %-32s %" PRIu64 "\n",
+					ctx->xstats.names[i],
+					r->xstat_deltas[i]);
+			}
+		}
 	}
 	fprintf(f, "\n");
 }
