@@ -86,6 +86,12 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		r->inst_retired_delta);
 	fprintf(f, "    cycles_unhalted: %" PRIu64 "\n",
 		r->cycles_unhalted_delta);
+	if (r->inst_retired_delta > 0)
+		fprintf(f, "    cycles/inst:     %.2f\n",
+			(double)r->cycles_unhalted_delta /
+			(double)r->inst_retired_delta);
+	else
+		fprintf(f, "    cycles/inst:     N/A\n");
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	fprintf(f, "  Cold-path:\n");
