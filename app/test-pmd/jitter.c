@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <sched.h>
 #include <sys/types.h>
+#include <sys/resource.h>
 
 #include <rte_common.h>
 #include <rte_cycles.h>
@@ -117,9 +118,14 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 		}
 	}
 
-	/* Seed context switch baselines */
-	jitter_read_ctxt_switches(&ctx->last_voluntary_cs,
-				  &ctx->last_nonvoluntary_cs);
+	/* Seed context switch baselines via getrusage */
+	{
+		struct rusage ru;
+		if (getrusage(RUSAGE_THREAD, &ru) == 0) {
+			ctx->last_voluntary_cs = (uint64_t)ru.ru_nvcsw;
+			ctx->last_nonvoluntary_cs = (uint64_t)ru.ru_nivcsw;
+		}
+	}
 
 	/* Seed NIC stats baselines */
 	struct rte_eth_stats stats;
@@ -180,6 +186,18 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		r->rx_ring_depth_after = cnt > 0 ? (uint32_t)cnt : 0;
 	}
 
+	/*
+	 * Read context switches FIRST, before any cold-path syscalls.
+	 * This captures only what happened during the forwarding iteration.
+	 */
+	struct rusage ru_before;
+	if (getrusage(RUSAGE_THREAD, &ru_before) == 0) {
+		r->voluntary_cs_delta = (uint64_t)ru_before.ru_nvcsw -
+			ctx->last_voluntary_cs;
+		r->nonvoluntary_cs_delta = (uint64_t)ru_before.ru_nivcsw -
+			ctx->last_nonvoluntary_cs;
+	}
+
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (ctx->pmc_enabled) {
 		uint64_t inst_end = jitter_rdpmc_read(ctx->pmc_inst_page);
@@ -199,15 +217,6 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		ctx->last_smi_count = smi_now;
 		ctx->last_aperf = aperf;
 		ctx->last_mperf = mperf;
-	}
-
-	/* Per-thread context switch counters */
-	uint64_t vcs, nvcs;
-	if (jitter_read_ctxt_switches(&vcs, &nvcs) == 0) {
-		r->voluntary_cs_delta = vcs - ctx->last_voluntary_cs;
-		r->nonvoluntary_cs_delta = nvcs - ctx->last_nonvoluntary_cs;
-		ctx->last_voluntary_cs = vcs;
-		ctx->last_nonvoluntary_cs = nvcs;
 	}
 
 	/* AER */
@@ -258,6 +267,17 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 				ctx->xstats.last_values[i] = values[i];
 			}
 		}
+	}
+
+	/*
+	 * Read context switches AGAIN after all cold-path work.
+	 * Update baseline to this value so the next anomaly's delta
+	 * excludes syscalls made by our own measurement code.
+	 */
+	struct rusage ru_after;
+	if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
+		ctx->last_voluntary_cs = (uint64_t)ru_after.ru_nvcsw;
+		ctx->last_nonvoluntary_cs = (uint64_t)ru_after.ru_nivcsw;
 	}
 }
 
