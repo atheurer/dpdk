@@ -18,7 +18,7 @@
 #endif
 
 #define JITTER_MAX_XSTATS 64
-#define JITTER_MAX_IRQS   16
+#define JITTER_MAX_IRQS   128
 #define JITTER_IRQ_NAME_SIZE 32
 
 enum jitter_class {

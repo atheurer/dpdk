@@ -429,15 +429,7 @@ jitter_irq_init(struct jitter_lcore_ctx *ctx, int cpu)
 			irq_name[i] = '\0';
 		}
 
-		/* Only track interesting interrupt types */
-		if (strcmp(irq_name, "LOC") != 0 &&
-		    strcmp(irq_name, "NMI") != 0 &&
-		    strcmp(irq_name, "RES") != 0 &&
-		    strcmp(irq_name, "CAL") != 0 &&
-		    strcmp(irq_name, "TLB") != 0 &&
-		    strcmp(irq_name, "IWI") != 0 &&
-		    strcmp(irq_name, "PMI") != 0 &&
-		    strcmp(irq_name, "MCP") != 0)
+		if (irq_name[0] == '\0')
 			continue;
 
 		count = parse_irq_count_for_cpu(line, ctx->irq_cpu_col);
