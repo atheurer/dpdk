@@ -443,14 +443,9 @@ jitter_irq_init(struct jitter_lcore_ctx *ctx, int cpu)
 	fclose(f);
 
 	if (ctx->irq_count > 0) {
-		uint16_t j;
-
 		ctx->irq_enabled = 1;
 		TESTPMD_LOG(NOTICE, "Jitter: tracking %u interrupt sources "
-			    "for cpu %d:\n", ctx->irq_count, cpu);
-		for (j = 0; j < ctx->irq_count; j++)
-			TESTPMD_LOG(NOTICE, "  irq[%u]: %s\n",
-				    j, ctx->irqs[j].name);
+			    "for cpu %d\n", ctx->irq_count, cpu);
 	}
 }
 
