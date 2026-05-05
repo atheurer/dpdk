@@ -17,6 +17,10 @@
 #include <linux/perf_event.h>
 #endif
 
+#ifdef JITTER_HAS_EBPF
+#include "jitter_ebpf.h"
+#endif
+
 #define JITTER_MAX_XSTATS 64
 #define JITTER_MAX_IRQS   128
 #define JITTER_IRQ_NAME_SIZE 32
@@ -82,10 +86,23 @@ struct jitter_record {
 	uint64_t irq_deltas[JITTER_MAX_IRQS];
 	uint16_t irq_count;
 
+	/* eBPF raw values at time of read (for debugging) */
+	uint64_t ebpf_cs_seq;
+	uint64_t ebpf_cs_total_vol;
+	uint64_t ebpf_cs_total_preempt;
+	uint64_t ebpf_cs_prev_seq;
+	uint64_t ebpf_cs_prev_vol;
+	uint64_t ebpf_cs_prev_preempt;
+
 	/* Set by jitter_classify() at dump time */
 	uint16_t classification; /* enum jitter_class */
 	uint16_t flags;
 };
+
+/* Bits in jitter_record.flags — why this anomaly was recorded */
+#define JITTER_FLAG_THRESHOLD  (1 << 0)  /* TSC delta exceeded threshold */
+#define JITTER_FLAG_CS_EVENT   (1 << 1)  /* eBPF context switch detected */
+#define JITTER_FLAG_IRQ_EVENT  (1 << 2)  /* eBPF interrupt detected */
 
 #define JITTER_XSTAT_RX_MISSED  0
 #define JITTER_XSTAT_RX_NOMBUF  1
@@ -119,6 +136,11 @@ struct jitter_lcore_ctx {
 	uint64_t total_anomalies;
 	uint64_t total_iterations;
 	uint64_t max_iter_cycles;
+
+	/* Per-trigger-type counters */
+	uint64_t total_threshold;
+	uint64_t total_cs_events;
+	uint64_t total_irq_events;
 
 	/* Config */
 	int msr_fd;
@@ -156,6 +178,18 @@ struct jitter_lcore_ctx {
 		uint64_t last_values[JITTER_MAX_XSTATS];
 		uint16_t count;
 	} xstats;
+
+#ifdef JITTER_HAS_EBPF
+	/* eBPF context switch tracking */
+	uint8_t ebpf_registered;
+	int ebpf_slot;
+	uint64_t last_cs_seq;
+	uint64_t last_ebpf_voluntary_cs;
+	uint64_t last_ebpf_nonvoluntary_cs;
+	const volatile struct jitter_cs_percpu *ebpf_cs_ptr;
+	const volatile struct jitter_irq_ring *ebpf_irq_ptr;
+	uint32_t last_irq_head;
+#endif
 } __rte_cache_aligned;
 
 /* Global configuration — set from CLI, read by all lcores */
@@ -167,6 +201,7 @@ extern uint8_t jitter_aer_enabled;
 extern uint8_t jitter_irq_enabled;
 extern uint8_t jitter_cs_enabled;
 extern uint8_t jitter_xstats_enabled;
+extern uint8_t jitter_ebpf_enabled;
 extern char jitter_output_path[PATH_MAX];
 extern char jitter_output_format[16];
 
@@ -190,7 +225,7 @@ struct jitter_iter_state;
 void jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 			   struct jitter_iter_state *st,
 			   uint64_t tsc_end, uint64_t delta,
-			   uint16_t nb_rx);
+			   uint16_t nb_rx, uint16_t flags);
 
 /* Reporting */
 int jitter_dump(const char *path, const char *format);
@@ -223,6 +258,21 @@ int jitter_read_ctxt_switches(uint64_t *vcs, uint64_t *nvcs);
 
 /* Classification (jitter_report.c) */
 enum jitter_class jitter_classify(const struct jitter_record *r);
+
+/* eBPF helpers (jitter_ebpf.c) */
+#ifdef JITTER_HAS_EBPF
+int jitter_ebpf_init(void);
+void jitter_ebpf_fini(void);
+int jitter_ebpf_register_lcore(int slot, pid_t tid, int cpu);
+void jitter_ebpf_read_cs(struct jitter_lcore_ctx *ctx,
+			  struct jitter_record *r);
+void jitter_ebpf_read_irqs(struct jitter_lcore_ctx *ctx,
+			    struct jitter_record *r);
+const volatile struct jitter_cs_percpu *jitter_ebpf_get_cs_ptr(int slot);
+const volatile struct jitter_irq_ring *jitter_ebpf_get_irq_ptr(int slot);
+int jitter_ebpf_available(void);
+pid_t jitter_ebpf_gettid(void);
+#endif
 
 /* Hot-path iteration markers */
 struct jitter_iter_state {
@@ -329,6 +379,7 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 		uint16_t nb_rx)
 {
 	uint64_t tsc_end, delta;
+	uint16_t flags = 0;
 
 	if (unlikely(ctx == NULL))
 		return;
@@ -337,9 +388,28 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 	ctx->total_iterations++;
 	if (delta > ctx->max_iter_cycles)
 		ctx->max_iter_cycles = delta;
-	if (likely(delta < jitter_threshold_cycles))
+	if (unlikely(delta >= jitter_threshold_cycles))
+		flags |= JITTER_FLAG_THRESHOLD;
+#ifdef JITTER_HAS_EBPF
+	if (ctx->ebpf_cs_ptr &&
+	    unlikely(ctx->ebpf_cs_ptr->seq != ctx->last_cs_seq))
+		flags |= JITTER_FLAG_CS_EVENT;
+	if (ctx->ebpf_irq_ptr &&
+	    unlikely(ctx->ebpf_irq_ptr->head != ctx->last_irq_head))
+		flags |= JITTER_FLAG_IRQ_EVENT;
+#endif
+	if (likely(flags == 0))
 		return;
-	jitter_record_anomaly(ctx, st, tsc_end, delta, nb_rx);
+	jitter_record_anomaly(ctx, st, tsc_end, delta, nb_rx, flags);
+#ifdef JITTER_HAS_EBPF
+	/* Consume the event seq/head in the hot path to guarantee
+	 * we never re-trigger on the same event, even if the cold
+	 * path read saw a stale value from the mmap. */
+	if (ctx->ebpf_cs_ptr)
+		ctx->last_cs_seq = ctx->ebpf_cs_ptr->seq;
+	if (ctx->ebpf_irq_ptr)
+		ctx->last_irq_head = ctx->ebpf_irq_ptr->head;
+#endif
 }
 
 #endif /* _JITTER_H_ */

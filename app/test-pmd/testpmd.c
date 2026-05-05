@@ -3598,8 +3598,9 @@ pmd_test_exit(void)
 
 	if (jitter_enabled) {
 		jitter_show_summary();
-		jitter_dump(jitter_output_path[0] ? jitter_output_path : NULL,
-			    jitter_output_format);
+		jitter_dump_top(10);
+		if (jitter_output_path[0])
+			jitter_dump(jitter_output_path, jitter_output_format);
 		jitter_global_fini();
 	}
 

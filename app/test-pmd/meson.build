@@ -40,6 +40,13 @@ if dpdk_conf.has('RTE_HAS_JANSSON')
     ext_deps += jansson_dep
 endif
 
+libbpf_dep = dependency('libbpf', required: false)
+if libbpf_dep.found() and is_linux
+    sources += files('jitter_ebpf.c')
+    ext_deps += libbpf_dep
+    cflags += '-DJITTER_HAS_EBPF'
+endif
+
 deps += ['ethdev', 'cmdline', 'bus_pci']
 if dpdk_conf.has('RTE_CRYPTO_SCHEDULER')
     deps += 'crypto_scheduler'

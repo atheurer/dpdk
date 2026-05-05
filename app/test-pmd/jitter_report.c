@@ -104,6 +104,12 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 				r->tsc_tx_delta);
 	}
 	fprintf(f, "  Classification: %s\n", jitter_class_names[cls]);
+	fprintf(f, "  Trigger:        flags=0x%04x %s%s%s%s\n",
+		r->flags,
+		(r->flags & JITTER_FLAG_THRESHOLD) ? "THRESHOLD " : "",
+		(r->flags & JITTER_FLAG_CS_EVENT)  ? "CS " : "",
+		(r->flags & JITTER_FLAG_IRQ_EVENT) ? "IRQ " : "",
+		(r->flags == 0) ? "(NONE)" : "");
 	fprintf(f, "  Hot-path:\n");
 	fprintf(f, "    inst_retired:    %" PRIu64 "\n",
 		r->inst_retired_delta);
@@ -131,6 +137,14 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		r->voluntary_cs_delta);
 	fprintf(f, "      nonvoluntary_cs_delta:  %" PRIu64 "\n",
 		r->nonvoluntary_cs_delta);
+	fprintf(f, "      eBPF raw:  seq=%" PRIu64 " vol=%" PRIu64
+		" preempt=%" PRIu64 "\n",
+		r->ebpf_cs_seq, r->ebpf_cs_total_vol,
+		r->ebpf_cs_total_preempt);
+	fprintf(f, "      eBPF prev: seq=%" PRIu64 " vol=%" PRIu64
+		" preempt=%" PRIu64 "\n",
+		r->ebpf_cs_prev_seq, r->ebpf_cs_prev_vol,
+		r->ebpf_cs_prev_preempt);
 	fprintf(f, "    CPU/Power:\n");
 	fprintf(f, "      smi_count_delta:        %" PRIu64 "\n",
 		r->smi_count_delta);
@@ -387,10 +401,12 @@ jitter_show_summary(void)
 	uint64_t tsc_hz = rte_get_tsc_hz();
 
 	fprintf(stdout, "\n--- Jitter Instrumentation Summary ---\n");
-	fprintf(stdout, "%-8s %-12s %-15s %-12s\n",
-		"Lcore", "Iterations", "Anomalies", "Max(us)");
-	fprintf(stdout, "%-8s %-12s %-15s %-12s\n",
-		"-----", "----------", "---------", "-------");
+	fprintf(stdout, "%-8s %12s %10s %10s %10s %10s %10s\n",
+		"Lcore", "Iterations", "Anomalies",
+		"Threshold", "CS", "IRQ", "Max(us)");
+	fprintf(stdout, "%-8s %12s %10s %10s %10s %10s %10s\n",
+		"-----", "----------", "---------",
+		"---------", "--", "---", "-------");
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
@@ -404,9 +420,16 @@ jitter_show_summary(void)
 		max_us = (double)ctx->max_iter_cycles * 1000000.0 /
 			 (double)tsc_hz;
 
-		fprintf(stdout, "%-8u %-12" PRIu64 " %-15" PRIu64 " %-12.1f\n",
+		fprintf(stdout,
+			"%-8u %12" PRIu64 " %10" PRIu64
+			" %10" PRIu64 " %10" PRIu64 " %10" PRIu64
+			" %10.1f\n",
 			lcore_id, ctx->total_iterations,
-			ctx->total_anomalies, max_us);
+			ctx->total_anomalies,
+			ctx->total_threshold,
+			ctx->total_cs_events,
+			ctx->total_irq_events,
+			max_us);
 	}
 	fprintf(stdout, "\n");
 }
@@ -428,5 +451,8 @@ jitter_reset_all(void)
 		ctx->total_anomalies = 0;
 		ctx->total_iterations = 0;
 		ctx->max_iter_cycles = 0;
+		ctx->total_threshold = 0;
+		ctx->total_cs_events = 0;
+		ctx->total_irq_events = 0;
 	}
 }

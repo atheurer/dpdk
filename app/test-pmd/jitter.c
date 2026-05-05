@@ -41,6 +41,7 @@ uint8_t jitter_aer_enabled;
 uint8_t jitter_irq_enabled;
 uint8_t jitter_cs_enabled;
 uint8_t jitter_xstats_enabled;
+uint8_t jitter_ebpf_enabled;
 char jitter_output_path[PATH_MAX] = "";
 char jitter_output_format[16] = "text";
 
@@ -65,6 +66,16 @@ jitter_global_init(void)
 		    "records=%u\n",
 		    jitter_threshold_us_val, jitter_threshold_cycles,
 		    jitter_record_count);
+
+#ifdef JITTER_HAS_EBPF
+	if (jitter_ebpf_enabled) {
+		if (jitter_ebpf_init() != 0) {
+			TESTPMD_LOG(WARNING,
+				    "eBPF init failed, continuing without it\n");
+			jitter_ebpf_enabled = 0;
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -79,6 +90,11 @@ jitter_global_fini(void)
 			jitter_lcore_ctxs[i] = NULL;
 		}
 	}
+
+#ifdef JITTER_HAS_EBPF
+	if (jitter_ebpf_enabled)
+		jitter_ebpf_fini();
+#endif
 }
 
 struct jitter_lcore_ctx *
@@ -173,7 +189,7 @@ void
 jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		      struct jitter_iter_state *st,
 		      uint64_t tsc_end, uint64_t delta,
-		      uint16_t nb_rx)
+		      uint16_t nb_rx, uint16_t flags)
 {
 	struct jitter_record *r;
 
@@ -181,7 +197,15 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	ctx->record_head++;
 	ctx->total_anomalies++;
 
+	if (flags & JITTER_FLAG_THRESHOLD)
+		ctx->total_threshold++;
+	if (flags & JITTER_FLAG_CS_EVENT)
+		ctx->total_cs_events++;
+	if (flags & JITTER_FLAG_IRQ_EVENT)
+		ctx->total_irq_events++;
+
 	memset(r, 0, sizeof(*r));
+	r->flags = flags;
 	r->tsc_start = st->tsc_start;
 	r->tsc_end = tsc_end;
 	r->tsc_delta = delta;
@@ -210,18 +234,31 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	 * syscalls. This captures only what happened during the forwarding
 	 * iteration.
 	 */
+#ifdef JITTER_HAS_EBPF
+	if (ctx->ebpf_registered) {
+		jitter_ebpf_read_irqs(ctx, r);
+	} else
+#endif
 	if (ctx->irq_enabled) {
 		jitter_irq_read(ctx, r->irq_deltas);
 		r->irq_count = ctx->irq_count;
 	}
 
-	struct rusage ru_before;
-	if (jitter_cs_enabled &&
-	    getrusage(RUSAGE_THREAD, &ru_before) == 0) {
-		r->voluntary_cs_delta = (uint64_t)ru_before.ru_nvcsw -
-			ctx->last_voluntary_cs;
-		r->nonvoluntary_cs_delta = (uint64_t)ru_before.ru_nivcsw -
-			ctx->last_nonvoluntary_cs;
+#ifdef JITTER_HAS_EBPF
+	if (ctx->ebpf_registered) {
+		jitter_ebpf_read_cs(ctx, r);
+	} else
+#endif
+	{
+		struct rusage ru_before;
+		if (jitter_cs_enabled &&
+		    getrusage(RUSAGE_THREAD, &ru_before) == 0) {
+			r->voluntary_cs_delta = (uint64_t)ru_before.ru_nvcsw -
+				ctx->last_voluntary_cs;
+			r->nonvoluntary_cs_delta =
+				(uint64_t)ru_before.ru_nivcsw -
+				ctx->last_nonvoluntary_cs;
+		}
 	}
 
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
@@ -307,18 +344,32 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	 * Read context switches and interrupts AGAIN after all cold-path
 	 * work. Update baselines so the next anomaly's deltas exclude
 	 * syscalls made by our own measurement code.
+	 *
+	 * Not needed for eBPF — it tracks per-event totals that don't
+	 * include our own cold-path syscalls.
 	 */
-	if (jitter_cs_enabled) {
-		struct rusage ru_after;
-		if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
-			ctx->last_voluntary_cs = (uint64_t)ru_after.ru_nvcsw;
-			ctx->last_nonvoluntary_cs =
-				(uint64_t)ru_after.ru_nivcsw;
+#ifdef JITTER_HAS_EBPF
+	if (!ctx->ebpf_registered)
+#endif
+	{
+		if (jitter_cs_enabled) {
+			struct rusage ru_after;
+			if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
+				ctx->last_voluntary_cs =
+					(uint64_t)ru_after.ru_nvcsw;
+				ctx->last_nonvoluntary_cs =
+					(uint64_t)ru_after.ru_nivcsw;
+			}
 		}
 	}
 
-	if (ctx->irq_enabled)
-		jitter_irq_update_baseline(ctx);
+#ifdef JITTER_HAS_EBPF
+	if (!ctx->ebpf_registered)
+#endif
+	{
+		if (ctx->irq_enabled)
+			jitter_irq_update_baseline(ctx);
+	}
 }
 
 int
@@ -726,6 +777,26 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 			ctx->last_nonvoluntary_cs = (uint64_t)ru.ru_nivcsw;
 		}
 	}
+
+#ifdef JITTER_HAS_EBPF
+	if (jitter_ebpf_enabled && jitter_ebpf_available() &&
+	    !ctx->ebpf_registered) {
+		int cpu = sched_getcpu();
+		if (cpu < 0)
+			cpu = 0;
+		/* Use lcore_id as the BPF map slot index */
+		ctx->ebpf_slot = ctx->lcore_id;
+		if (jitter_ebpf_register_lcore(ctx->ebpf_slot,
+					       jitter_ebpf_gettid(),
+					       cpu) >= 0) {
+			ctx->ebpf_cs_ptr =
+				jitter_ebpf_get_cs_ptr(ctx->ebpf_slot);
+			ctx->ebpf_irq_ptr =
+				jitter_ebpf_get_irq_ptr(ctx->ebpf_slot);
+			ctx->ebpf_registered = 1;
+		}
+	}
+#endif
 }
 
 void
