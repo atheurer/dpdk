@@ -20,8 +20,35 @@
 
 #define JITTER_EBPF_MAX_TARGETS   128
 #define JITTER_EBPF_IRQ_RING_SIZE  16
-#define JITTER_EBPF_IRQ_NAME_LEN   16
 #define JITTER_EBPF_INVALID_CPU    0xFFFFFFFF
+
+/* Interrupt source types recorded by eBPF programs */
+enum jitter_irq_type {
+	JITTER_IRQ_DEVICE = 0,       /* irq:irq_handler_entry */
+	JITTER_IRQ_LOCAL_TIMER,      /* irq_vectors:local_timer_entry */
+	JITTER_IRQ_RESCHEDULE,       /* irq_vectors:reschedule_entry */
+	JITTER_IRQ_CALL_FUNC,        /* irq_vectors:call_function_entry */
+	JITTER_IRQ_CALL_FUNC_SINGLE, /* irq_vectors:call_function_single_entry */
+	JITTER_IRQ_IRQ_WORK,         /* irq_vectors:irq_work_entry */
+	JITTER_IRQ_THERMAL,          /* irq_vectors:thermal_apic_entry */
+	JITTER_IRQ_THRESHOLD,        /* irq_vectors:threshold_apic_entry */
+	JITTER_IRQ_DEFERRED_ERR,     /* irq_vectors:deferred_error_apic_entry */
+	JITTER_IRQ_ERROR,            /* irq_vectors:error_apic_entry */
+	JITTER_IRQ_SPURIOUS,         /* irq_vectors:spurious_apic_entry */
+	JITTER_IRQ_X86_PLATFORM,     /* irq_vectors:x86_platform_ipi_entry */
+	JITTER_IRQ_SOFTIRQ_HI,      /* irq:softirq_entry vec=0 */
+	JITTER_IRQ_SOFTIRQ_TIMER,   /* irq:softirq_entry vec=1 */
+	JITTER_IRQ_SOFTIRQ_NET_TX,  /* irq:softirq_entry vec=2 */
+	JITTER_IRQ_SOFTIRQ_NET_RX,  /* irq:softirq_entry vec=3 */
+	JITTER_IRQ_SOFTIRQ_BLOCK,   /* irq:softirq_entry vec=4 */
+	JITTER_IRQ_SOFTIRQ_IRQ_POLL,/* irq:softirq_entry vec=5 */
+	JITTER_IRQ_SOFTIRQ_TASKLET, /* irq:softirq_entry vec=6 */
+	JITTER_IRQ_SOFTIRQ_SCHED,   /* irq:softirq_entry vec=7 */
+	JITTER_IRQ_SOFTIRQ_HRTIMER, /* irq:softirq_entry vec=8 */
+	JITTER_IRQ_SOFTIRQ_RCU,     /* irq:softirq_entry vec=9 */
+	JITTER_IRQ_NMI,              /* nmi:nmi_handler */
+	JITTER_IRQ_TYPE_MAX
+};
 
 /*
  * Per-CPU context switch state.
@@ -43,8 +70,8 @@ struct jitter_cs_percpu {
  */
 struct jitter_irq_event {
 	__u64 timestamp;         /* ktime_get_ns() */
-	__u32 irq;               /* IRQ number */
-	char  name[JITTER_EBPF_IRQ_NAME_LEN];
+	__u32 irq;               /* IRQ number or vector */
+	__u32 type;              /* enum jitter_irq_type */
 };
 
 /*

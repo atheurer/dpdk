@@ -14,6 +14,35 @@
 
 #include "testpmd.h"
 #include "jitter.h"
+#ifdef JITTER_HAS_EBPF
+#include "jitter_ebpf.h"
+#endif
+
+static const char *jitter_irq_type_names[] = {
+	[JITTER_IRQ_DEVICE]           = "DEVICE",
+	[JITTER_IRQ_LOCAL_TIMER]      = "LOC",
+	[JITTER_IRQ_RESCHEDULE]       = "RES",
+	[JITTER_IRQ_CALL_FUNC]        = "CAL",
+	[JITTER_IRQ_CALL_FUNC_SINGLE] = "CFS",
+	[JITTER_IRQ_IRQ_WORK]         = "IWQ",
+	[JITTER_IRQ_THERMAL]          = "TRM",
+	[JITTER_IRQ_THRESHOLD]        = "THR",
+	[JITTER_IRQ_DEFERRED_ERR]     = "DFR",
+	[JITTER_IRQ_ERROR]            = "ERR",
+	[JITTER_IRQ_SPURIOUS]         = "SPU",
+	[JITTER_IRQ_X86_PLATFORM]     = "PLT",
+	[JITTER_IRQ_SOFTIRQ_HI]      = "SI:HI",
+	[JITTER_IRQ_SOFTIRQ_TIMER]   = "SI:TIMER",
+	[JITTER_IRQ_SOFTIRQ_NET_TX]  = "SI:NET_TX",
+	[JITTER_IRQ_SOFTIRQ_NET_RX]  = "SI:NET_RX",
+	[JITTER_IRQ_SOFTIRQ_BLOCK]   = "SI:BLOCK",
+	[JITTER_IRQ_SOFTIRQ_IRQ_POLL]= "SI:IRQPOL",
+	[JITTER_IRQ_SOFTIRQ_TASKLET] = "SI:TASKLT",
+	[JITTER_IRQ_SOFTIRQ_SCHED]   = "SI:SCHED",
+	[JITTER_IRQ_SOFTIRQ_HRTIMER] = "SI:HRTMR",
+	[JITTER_IRQ_SOFTIRQ_RCU]     = "SI:RCU",
+	[JITTER_IRQ_NMI]              = "NMI",
+};
 
 static const char *jitter_class_names[] = {
 	[JITTER_CLASS_UNKNOWN]            = "UNKNOWN",
@@ -166,18 +195,24 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "      ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
 	fprintf(f, "      mempool_avail:          %u\n", r->mempool_avail);
+	fprintf(f, "    Interrupts:\n");
+	fprintf(f, "      eBPF irq ring: head=%u prev_head=%u\n",
+		r->ebpf_irq_head, r->ebpf_irq_prev_head);
 	if (r->irq_count > 0) {
-		int any = 0;
-
-		for (i = 0; i < r->irq_count && i < ctx->irq_count; i++) {
-			if (r->irq_deltas[i] != 0) {
-				if (!any) {
-					fprintf(f, "    Interrupts:\n");
-					any = 1;
-				}
-				fprintf(f, "      %-8s %" PRIu64 "\n",
-					ctx->irqs[i].name,
-					r->irq_deltas[i]);
+		if (r->ebpf_irq_head > 0 || r->ebpf_irq_prev_head > 0) {
+			for (i = 0; i < JITTER_IRQ_TYPE_MAX; i++) {
+				if (r->irq_deltas[i] != 0)
+					fprintf(f, "      %-8s %" PRIu64 "\n",
+						jitter_irq_type_names[i],
+						r->irq_deltas[i]);
+			}
+		} else {
+			for (i = 0; i < r->irq_count &&
+			     i < ctx->irq_count; i++) {
+				if (r->irq_deltas[i] != 0)
+					fprintf(f, "      %-8s %" PRIu64 "\n",
+						ctx->irqs[i].name,
+						r->irq_deltas[i]);
 			}
 		}
 	}

@@ -103,11 +103,11 @@ jitter_ebpf_init(void)
 
 fail:
 	if (irq_mmap) {
-		munmap(irq_mmap, irq_mmap_sz);
+		munmap((void *)(uintptr_t)irq_mmap, irq_mmap_sz);
 		irq_mmap = NULL;
 	}
 	if (cs_mmap) {
-		munmap(cs_mmap, cs_mmap_sz);
+		munmap((void *)(uintptr_t)cs_mmap, cs_mmap_sz);
 		cs_mmap = NULL;
 	}
 	if (config_mmap) {
@@ -125,11 +125,11 @@ jitter_ebpf_fini(void)
 	if (skel) {
 		jitter_bpf__detach(skel);
 		if (irq_mmap) {
-			munmap(irq_mmap, irq_mmap_sz);
+			munmap((void *)(uintptr_t)irq_mmap, irq_mmap_sz);
 			irq_mmap = NULL;
 		}
 		if (cs_mmap) {
-			munmap(cs_mmap, cs_mmap_sz);
+			munmap((void *)(uintptr_t)cs_mmap, cs_mmap_sz);
 			cs_mmap = NULL;
 		}
 		if (config_mmap) {
@@ -206,7 +206,6 @@ jitter_ebpf_read_irqs(struct jitter_lcore_ctx *ctx, struct jitter_record *r)
 	int slot = ctx->ebpf_slot;
 	const volatile struct jitter_irq_ring *ring;
 	uint32_t head, prev_head, idx;
-	uint16_t count = 0;
 
 	if (!irq_mmap || slot < 0 || slot >= JITTER_EBPF_MAX_TARGETS)
 		return;
@@ -215,18 +214,22 @@ jitter_ebpf_read_irqs(struct jitter_lcore_ctx *ctx, struct jitter_record *r)
 	head = ring->head;
 	prev_head = ctx->last_irq_head;
 
+	r->ebpf_irq_head = head;
+	r->ebpf_irq_prev_head = prev_head;
+
 	if (head == prev_head)
 		return;
 
-	/* Walk new entries in the ring */
-	while (prev_head != head && count < JITTER_MAX_IRQS) {
+	/* Tally events by type */
+	while (prev_head != head) {
 		idx = prev_head % JITTER_EBPF_IRQ_RING_SIZE;
-		r->irq_deltas[count] = ring->events[idx].irq;
-		count++;
+		__u32 type = ring->events[idx].type;
+		if (type < JITTER_IRQ_TYPE_MAX)
+			r->irq_deltas[type]++;
 		prev_head++;
 	}
 
-	r->irq_count = count;
+	r->irq_count = JITTER_IRQ_TYPE_MAX;
 	ctx->last_irq_head = head;
 }
 

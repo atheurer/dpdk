@@ -93,6 +93,8 @@ struct jitter_record {
 	uint64_t ebpf_cs_prev_seq;
 	uint64_t ebpf_cs_prev_vol;
 	uint64_t ebpf_cs_prev_preempt;
+	uint32_t ebpf_irq_head;
+	uint32_t ebpf_irq_prev_head;
 
 	/* Set by jitter_classify() at dump time */
 	uint16_t classification; /* enum jitter_class */
