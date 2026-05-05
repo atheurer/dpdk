@@ -264,6 +264,10 @@ enum {
 	TESTPMD_OPT_JITTER_AER_NUM,
 #define TESTPMD_OPT_JITTER_INTERRUPTS "jitter-interrupts"
 	TESTPMD_OPT_JITTER_INTERRUPTS_NUM,
+#define TESTPMD_OPT_JITTER_CS "jitter-cs"
+	TESTPMD_OPT_JITTER_CS_NUM,
+#define TESTPMD_OPT_JITTER_XSTATS "jitter-xstats"
+	TESTPMD_OPT_JITTER_XSTATS_NUM,
 #define TESTPMD_OPT_JITTER_OUTPUT "jitter-output"
 	TESTPMD_OPT_JITTER_OUTPUT_NUM,
 #define TESTPMD_OPT_JITTER_OUTPUT_FORMAT "jitter-output-format"
@@ -398,6 +402,8 @@ static const struct option long_options[] = {
 	NO_ARG(TESTPMD_OPT_JITTER_MSR),
 	NO_ARG(TESTPMD_OPT_JITTER_AER),
 	NO_ARG(TESTPMD_OPT_JITTER_INTERRUPTS),
+	NO_ARG(TESTPMD_OPT_JITTER_CS),
+	NO_ARG(TESTPMD_OPT_JITTER_XSTATS),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_OUTPUT_FORMAT),
 	{ 0, 0, NULL, 0 }
@@ -574,7 +580,12 @@ usage(char* progname)
 	       " (default 1024).\n");
 	printf("  --jitter-msr: enable MSR reads (SMI count, APERF/MPERF).\n");
 	printf("  --jitter-aer: enable PCIe AER register reads on anomaly.\n");
-	printf("  --jitter-interrupts: track per-CPU interrupt counts on anomaly.\n");
+	printf("  --jitter-interrupts: track per-CPU interrupt counts on anomaly"
+	       " (causes syscalls).\n");
+	printf("  --jitter-cs: track context switches via getrusage on anomaly"
+	       " (causes syscall).\n");
+	printf("  --jitter-xstats: read PMD xstats on anomaly"
+	       " (may cause syscall on some PMDs, e.g. mlx5).\n");
 	printf("  --jitter-output=PATH: anomaly dump output file"
 	       " (default stderr).\n");
 	printf("  --jitter-output-format=FMT: text or csv"
@@ -1790,6 +1801,12 @@ launch_args_parse(int argc, char** argv)
 			break;
 		case TESTPMD_OPT_JITTER_INTERRUPTS_NUM:
 			jitter_irq_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_CS_NUM:
+			jitter_cs_enabled = 1;
+			break;
+		case TESTPMD_OPT_JITTER_XSTATS_NUM:
+			jitter_xstats_enabled = 1;
 			break;
 		case TESTPMD_OPT_JITTER_OUTPUT_NUM:
 			strlcpy(jitter_output_path, optarg,

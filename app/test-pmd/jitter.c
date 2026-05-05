@@ -39,6 +39,8 @@ uint32_t jitter_record_count = 1024;
 uint8_t jitter_msr_enabled;
 uint8_t jitter_aer_enabled;
 uint8_t jitter_irq_enabled;
+uint8_t jitter_cs_enabled;
+uint8_t jitter_xstats_enabled;
 char jitter_output_path[PATH_MAX] = "";
 char jitter_output_format[16] = "text";
 
@@ -130,17 +132,21 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 
 	/* Context switch baseline deferred to jitter_pmc_lazy_init() */
 
-	/* Seed NIC stats baselines */
-	struct rte_eth_stats stats;
-	if (rte_eth_stats_get(port_id, &stats) == 0) {
-		ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
-			stats.imissed;
-		ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] = stats.rx_nombuf;
-		ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
+	/* Seed NIC stats baselines (userspace MMIO for most PMDs) */
+	{
+		struct rte_eth_stats stats;
+		if (rte_eth_stats_get(port_id, &stats) == 0) {
+			ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
+				stats.imissed;
+			ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] =
+				stats.rx_nombuf;
+			ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
+		}
 	}
 
 	/* Discover PMD-specific xstats */
-	jitter_xstats_init(ctx, port_id);
+	if (jitter_xstats_enabled)
+		jitter_xstats_init(ctx, port_id);
 
 	jitter_lcore_ctxs[lcore_id] = ctx;
 	return ctx;
@@ -210,7 +216,8 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	}
 
 	struct rusage ru_before;
-	if (getrusage(RUSAGE_THREAD, &ru_before) == 0) {
+	if (jitter_cs_enabled &&
+	    getrusage(RUSAGE_THREAD, &ru_before) == 0) {
 		r->voluntary_cs_delta = (uint64_t)ru_before.ru_nvcsw -
 			ctx->last_voluntary_cs;
 		r->nonvoluntary_cs_delta = (uint64_t)ru_before.ru_nivcsw -
@@ -255,19 +262,22 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		ctx->last_aer_uncorrectable = uncorr;
 	}
 
-	/* NIC stats deltas */
-	struct rte_eth_stats stats;
-	if (rte_eth_stats_get(st->port_id, &stats) == 0) {
-		r->rx_missed_delta = stats.imissed -
-			ctx->last_xstats[JITTER_XSTAT_RX_MISSED];
-		r->rx_nombuf_delta = stats.rx_nombuf -
-			ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF];
-		r->ierrors_delta = stats.ierrors -
-			ctx->last_xstats[JITTER_XSTAT_IERRORS];
-		ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
-			stats.imissed;
-		ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] = stats.rx_nombuf;
-		ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
+	/* NIC stats deltas (userspace MMIO for most PMDs — no syscall) */
+	{
+		struct rte_eth_stats stats;
+		if (rte_eth_stats_get(st->port_id, &stats) == 0) {
+			r->rx_missed_delta = stats.imissed -
+				ctx->last_xstats[JITTER_XSTAT_RX_MISSED];
+			r->rx_nombuf_delta = stats.rx_nombuf -
+				ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF];
+			r->ierrors_delta = stats.ierrors -
+				ctx->last_xstats[JITTER_XSTAT_IERRORS];
+			ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
+				stats.imissed;
+			ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] =
+				stats.rx_nombuf;
+			ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
+		}
 	}
 
 	/* Mempool avail count */
@@ -275,7 +285,7 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		r->mempool_avail = rte_mempool_avail_count(ctx->mbuf_pool);
 
 	/* PMD-specific xstats */
-	if (ctx->xstats.count > 0) {
+	if (jitter_xstats_enabled && ctx->xstats.count > 0) {
 		uint64_t values[JITTER_MAX_XSTATS];
 		int ret;
 		uint16_t i;
@@ -298,10 +308,13 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	 * work. Update baselines so the next anomaly's deltas exclude
 	 * syscalls made by our own measurement code.
 	 */
-	struct rusage ru_after;
-	if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
-		ctx->last_voluntary_cs = (uint64_t)ru_after.ru_nvcsw;
-		ctx->last_nonvoluntary_cs = (uint64_t)ru_after.ru_nivcsw;
+	if (jitter_cs_enabled) {
+		struct rusage ru_after;
+		if (getrusage(RUSAGE_THREAD, &ru_after) == 0) {
+			ctx->last_voluntary_cs = (uint64_t)ru_after.ru_nvcsw;
+			ctx->last_nonvoluntary_cs =
+				(uint64_t)ru_after.ru_nivcsw;
+		}
 	}
 
 	if (ctx->irq_enabled)
@@ -706,7 +719,7 @@ jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx)
 	}
 
 	/* Seed context switch baseline from the forwarding lcore thread */
-	{
+	if (jitter_cs_enabled) {
 		struct rusage ru;
 		if (getrusage(RUSAGE_THREAD, &ru) == 0) {
 			ctx->last_voluntary_cs = (uint64_t)ru.ru_nvcsw;

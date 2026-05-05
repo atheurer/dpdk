@@ -165,6 +165,8 @@ extern uint32_t jitter_record_count;
 extern uint8_t jitter_msr_enabled;
 extern uint8_t jitter_aer_enabled;
 extern uint8_t jitter_irq_enabled;
+extern uint8_t jitter_cs_enabled;
+extern uint8_t jitter_xstats_enabled;
 extern char jitter_output_path[PATH_MAX];
 extern char jitter_output_format[16];
 
