@@ -160,20 +160,46 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		fprintf(f, "    freq ratio:      N/A\n");
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
+	if (r->flags & JITTER_FLAG_IRQ_EVENT) {
+		fprintf(f, "    Interrupts (eBPF-detected):\n");
+		fprintf(f, "      eBPF irq ring: head=%u prev_head=%u\n",
+			r->ebpf_irq_head, r->ebpf_irq_prev_head);
+		if (r->irq_count > 0) {
+			for (i = 0; i < JITTER_IRQ_TYPE_MAX; i++) {
+				if (r->irq_deltas[i] != 0)
+					fprintf(f, "      %-8s %" PRIu64 "\n",
+						jitter_irq_type_names[i],
+						r->irq_deltas[i]);
+			}
+		}
+	}
+	if (r->flags & JITTER_FLAG_CS_EVENT) {
+		fprintf(f, "    Scheduling (eBPF-detected):\n");
+		fprintf(f, "      eBPF raw:  seq=%" PRIu64 " vol=%" PRIu64
+			" preempt=%" PRIu64 "\n",
+			r->ebpf_cs_seq, r->ebpf_cs_total_vol,
+			r->ebpf_cs_total_preempt);
+		fprintf(f, "      eBPF prev: seq=%" PRIu64 " vol=%" PRIu64
+			" preempt=%" PRIu64 "\n",
+			r->ebpf_cs_prev_seq, r->ebpf_cs_prev_vol,
+			r->ebpf_cs_prev_preempt);
+	}
 	fprintf(f, "  Cold-path:\n");
 	fprintf(f, "    Scheduling:\n");
 	fprintf(f, "      voluntary_cs_delta:     %" PRIu64 "\n",
 		r->voluntary_cs_delta);
 	fprintf(f, "      nonvoluntary_cs_delta:  %" PRIu64 "\n",
 		r->nonvoluntary_cs_delta);
-	fprintf(f, "      eBPF raw:  seq=%" PRIu64 " vol=%" PRIu64
-		" preempt=%" PRIu64 "\n",
-		r->ebpf_cs_seq, r->ebpf_cs_total_vol,
-		r->ebpf_cs_total_preempt);
-	fprintf(f, "      eBPF prev: seq=%" PRIu64 " vol=%" PRIu64
-		" preempt=%" PRIu64 "\n",
-		r->ebpf_cs_prev_seq, r->ebpf_cs_prev_vol,
-		r->ebpf_cs_prev_preempt);
+	if (!(r->flags & JITTER_FLAG_CS_EVENT)) {
+		fprintf(f, "      eBPF raw:  seq=%" PRIu64 " vol=%" PRIu64
+			" preempt=%" PRIu64 "\n",
+			r->ebpf_cs_seq, r->ebpf_cs_total_vol,
+			r->ebpf_cs_total_preempt);
+		fprintf(f, "      eBPF prev: seq=%" PRIu64 " vol=%" PRIu64
+			" preempt=%" PRIu64 "\n",
+			r->ebpf_cs_prev_seq, r->ebpf_cs_prev_vol,
+			r->ebpf_cs_prev_preempt);
+	}
 	fprintf(f, "    CPU/Power:\n");
 	fprintf(f, "      smi_count_delta:        %" PRIu64 "\n",
 		r->smi_count_delta);
@@ -195,24 +221,26 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "      ierrors_delta:           %" PRIu64 "\n",
 		r->ierrors_delta);
 	fprintf(f, "      mempool_avail:          %u\n", r->mempool_avail);
-	fprintf(f, "    Interrupts:\n");
-	fprintf(f, "      eBPF irq ring: head=%u prev_head=%u\n",
-		r->ebpf_irq_head, r->ebpf_irq_prev_head);
-	if (r->irq_count > 0) {
-		if (r->ebpf_irq_head > 0 || r->ebpf_irq_prev_head > 0) {
-			for (i = 0; i < JITTER_IRQ_TYPE_MAX; i++) {
-				if (r->irq_deltas[i] != 0)
-					fprintf(f, "      %-8s %" PRIu64 "\n",
-						jitter_irq_type_names[i],
-						r->irq_deltas[i]);
-			}
-		} else {
-			for (i = 0; i < r->irq_count &&
-			     i < ctx->irq_count; i++) {
-				if (r->irq_deltas[i] != 0)
-					fprintf(f, "      %-8s %" PRIu64 "\n",
-						ctx->irqs[i].name,
-						r->irq_deltas[i]);
+	if (!(r->flags & JITTER_FLAG_IRQ_EVENT)) {
+		fprintf(f, "    Interrupts:\n");
+		fprintf(f, "      eBPF irq ring: head=%u prev_head=%u\n",
+			r->ebpf_irq_head, r->ebpf_irq_prev_head);
+		if (r->irq_count > 0) {
+			if (r->ebpf_irq_head > 0 || r->ebpf_irq_prev_head > 0) {
+				for (i = 0; i < JITTER_IRQ_TYPE_MAX; i++) {
+					if (r->irq_deltas[i] != 0)
+						fprintf(f, "      %-8s %" PRIu64 "\n",
+							jitter_irq_type_names[i],
+							r->irq_deltas[i]);
+				}
+			} else {
+				for (i = 0; i < r->irq_count &&
+				     i < ctx->irq_count; i++) {
+					if (r->irq_deltas[i] != 0)
+						fprintf(f, "      %-8s %" PRIu64 "\n",
+							ctx->irqs[i].name,
+							r->irq_deltas[i]);
+				}
 			}
 		}
 	}
