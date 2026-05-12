@@ -16,20 +16,23 @@ userspace via `mmap` — no syscalls, no interrupts, no measurement noise.
 ## 2. Architecture Overview
 
 ```
-+------------------+       +-------------------+
-|   testpmd        |       |   Linux Kernel     |
-|   (userspace)    |       |                   |
-|                  |       |  eBPF programs     |
-|  jitter_iter_end |       |  attached to:      |
-|    |             |       |   sched_switch     |
-|    v             |       |   irq_handler_entry|
-|  anomaly?        |       |   irq_handler_exit |
-|    |             |       |   softirq_entry    |
-|    v             |       |                   |
-|  read BPF maps   |<----->|  BPF maps          |
-|  (mmap, no       |  mmap |  (per-CPU arrays)  |
-|   syscall)       |       |                   |
-+------------------+       +-------------------+
++------------------+       +-----------------------------+
+|   testpmd        |       |   Linux Kernel               |
+|   (userspace)    |       |                             |
+|                  |       |  15 eBPF programs attached:  |
+|  jitter_iter_end |       |   sched:sched_switch        |
+|    |             |       |   irq:irq_handler_entry     |
+|    v             |       |   irq_vectors:* (11 types)  |
+|  seq/head check  |       |   irq:softirq_entry         |
+|    |             |       |   nmi:nmi_handler            |
+|    v             |       |                             |
+|  threshold or    |       |  BPF maps (mmap'd):         |
+|  event detected? |       |   jitter_cs_map             |
+|    |             |       |   jitter_irq_map            |
+|    v             |<----->|   jitter_config_map         |
+|  read BPF maps   |  mmap |                             |
+|  (no syscall)    |       |                             |
++------------------+       +-----------------------------+
 ```
 
 ### Key Properties
@@ -409,57 +412,74 @@ sudo apt install libbpf-dev clang linux-tools-common
 | Privileges | Basic | CAP_BPF |
 | Kernel version | Any | >= 5.5 |
 
-## 10. Implementation Checklist
+## 10. Implementation Status
 
-For the implementer to work through in order:
+### Completed
 
-- [ ] Create shared header `jitter_ebpf.h` with struct definitions used by
-      both BPF programs and userspace (event structs, config struct, map
-      layout, ring buffer sizes)
-- [ ] Create BPF program `sched_switch.bpf.c` — filter by target PID,
-      write to per-CPU array map, bump sequence counter
-- [ ] Create BPF program `irq_entry.bpf.c` — filter by target CPU, write
-      to per-CPU IRQ ring buffer
-- [ ] Create `jitter_ebpf.c` — libbpf skeleton loader, mmap setup,
-      cold-path readers (`jitter_ebpf_read_cs`, `jitter_ebpf_read_irqs`),
-      init/fini functions
-- [ ] Add `--jitter-ebpf` CLI option to `parameters.c`
-- [ ] Integrate eBPF cold-path readers into `jitter_record_anomaly()` —
-      use eBPF path when available, fall back to syscall path
-- [ ] Update meson.build — libbpf dependency, BPF program compilation,
-      skeleton generation
-- [ ] Update anomaly record struct — add fields for eBPF-sourced data
-      (preempting PID, IRQ number/name with timestamps)
-- [ ] Update report output — show eBPF-sourced interrupt and CS data
-      with timestamps
+- [x] Shared header `jitter_ebpf.h` — event structs, config struct, map
+      layout, ring buffer sizes, interrupt type enum
+- [x] BPF programs in single object `jitter.bpf.c` (15 programs):
+      - `sched_switch` — CS tracking by target PID
+      - `irq_handler_entry` — device IRQ tracking by target CPU
+      - 11 `irq_vectors:*_entry` handlers — LOC, RES, CAL, CFS, IWQ,
+        thermal, threshold, deferred error, error, spurious, x86 platform
+      - `softirq_entry` — HI, TIMER, NET_TX, NET_RX, BLOCK, IRQ_POLL,
+        TASKLET, SCHED, HRTIMER, RCU
+      - `nmi_handler` — non-maskable interrupts
+- [x] Userspace loader `jitter_ebpf.c` — libbpf skeleton, mmap setup,
+      cold-path readers, init/fini
+- [x] `--jitter-ebpf` CLI option in `parameters.c`
+- [x] eBPF cold-path readers integrated into `jitter_record_anomaly()`
+- [x] meson.build — conditional libbpf dependency, `-DJITTER_HAS_EBPF`
+- [x] Hot-path event detection — seq/head checks in `jitter_iter_end()`
+      trigger anomaly recording immediately, without waiting for threshold
+- [x] Trigger flags in `jitter_record.flags` (THRESHOLD, CS_EVENT,
+      IRQ_EVENT) with per-type counters in summary
+- [x] Exit dump limited to top 10 anomalies; full dump to file only
+- [x] Graceful fallback if BPF load fails
+- [x] Prerequisite checker script (`check_ebpf_prereqs.sh`)
+
+### Remaining
+
 - [ ] Update classification heuristics — use eBPF CS data for
       `JITTER_CLASS_KERNEL_PREEMPTION` when available
-- [ ] Test: verify zero-noise by running with only `--jitter-ebpf` and
-      checking that no cold-path syscalls appear in strace
-- [ ] Test: verify BPF programs load on RHEL 8/9 and Fedora kernels
-- [ ] Fallback: gracefully disable eBPF if BPF load fails (kernel too old,
-      insufficient privileges, BTF not available)
+- [ ] Test on RHEL 8/9 kernels (only tested on Fedora 6.17 so far)
+- [ ] Meson auto-generation of skeleton (currently pre-generated)
+- [ ] Investigate: nohz_full CPUs still showing LOC interrupts
 
-## 11. Open Questions
+## 11. Resolved Questions
 
-1. **BPF program distribution**: Ship pre-compiled `.bpf.o` files, or
-   compile from source at build time? Pre-compiled is simpler but requires
-   CO-RE for portability across kernel versions. Compiling from source
-   requires clang at build time.
+1. **BPF program distribution**: Ship pre-generated skeleton header
+   (`jitter.skel.h`) which embeds compiled BPF bytecode. No external
+   `.bpf.o` file needed at runtime. Only `libbpf-devel` needed at build
+   time (not clang/bpftool).
 
-2. **libbpf version**: Minimum libbpf version needed for BPF_F_MMAPABLE
-   and skeleton support. libbpf >= 0.5 should work.
+2. **libbpf version**: libbpf >= 0.5 required. Tested with libbpf 1.6.1.
 
-3. **Multiple forwarding threads**: The config map needs to hold all
-   forwarding thread PIDs. These are known after `start_packet_forwarding()`
-   but the BPF programs are loaded at init. Solution: load programs at init,
-   populate config map at forwarding start (the mmap is writable).
+3. **Multiple forwarding threads**: Programs loaded at `jitter_global_init()`,
+   config map populated per-lcore at `jitter_pmc_lazy_init()` on the
+   forwarding thread via `gettid()`/`sched_getcpu()`. lcore_id used as
+   slot index.
 
-4. **BPF program size limits**: The `sched_switch` tracepoint fires very
-   frequently on busy systems. The BPF program must be extremely fast
-   (~50ns) and the PID filter must be the first check to bail out early
-   for non-target threads.
+4. **BPF program size limits**: PID 0 (idle task) rejected first to bail
+   out early. Linear scan of target_pids is bounded by num_targets
+   (typically 1-8). JIT-compiled programs are ~400 bytes.
 
-5. **Security**: BPF programs have read access to kernel memory via
-   tracepoint arguments. The programs only read PID, CPU, IRQ number, and
-   timestamp — no sensitive data. However, `CAP_BPF` is still required.
+5. **Security**: Only PID, CPU, IRQ number/vector, timestamp, and task
+   state are read. `CAP_BPF` required (testpmd typically runs as root).
+
+## 12. Lessons Learned
+
+1. **`BPF_F_MMAPABLE` is `(1U << 10)`** not `(1U << 5)` on modern kernels.
+2. **mmap'd BPF map pointers must be `volatile`** — without it, compiler
+   caches reads causing infinite re-trigger loops.
+3. **PID 0 matches uninitialized slots** — idle task context switches
+   pollute data. Skip PID 0 in BPF, use sentinel `0xFFFFFFFF` for CPUs.
+4. **seq counter: only bump on switch-out** — switch-in records timestamp
+   but doesn't bump seq, avoiding 2x anomaly inflation.
+5. **`irq_handler_entry` only catches device IRQs** — LOC, RES, NMI,
+   softirqs need separate tracepoints. kprobes on interrupt entry
+   functions are blacklisted by the kernel.
+6. **Hot-path seq consumption** — must update `last_cs_seq` after cold
+   path returns to guarantee events are consumed even if cold-path read
+   saw a stale value.
