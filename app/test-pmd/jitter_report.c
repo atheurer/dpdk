@@ -166,6 +166,10 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 			(double)r->ref_cycles_delta);
 	else
 		fprintf(f, "    freq ratio:      N/A\n");
+	fprintf(f, "    llc_misses:      %" PRIu64 "\n",
+		r->llc_misses_delta);
+	fprintf(f, "    branch_misses:   %" PRIu64 "\n",
+		r->branch_misses_delta);
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	if (r->flags & JITTER_FLAG_IRQ_EVENT) {

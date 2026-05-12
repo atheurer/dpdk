@@ -278,6 +278,17 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 				ctx->pmc_ref_cycles_page);
 			r->ref_cycles_delta = ref_end - st->ref_cycles_start;
 		}
+		if (ctx->pmc_llc_misses_page != NULL) {
+			uint64_t llc_end = jitter_rdpmc_read(
+				ctx->pmc_llc_misses_page);
+			r->llc_misses_delta = llc_end - st->llc_misses_start;
+		}
+		if (ctx->pmc_branch_misses_page != NULL) {
+			uint64_t br_end = jitter_rdpmc_read(
+				ctx->pmc_branch_misses_page);
+			r->branch_misses_delta =
+				br_end - st->branch_misses_start;
+		}
 	}
 #endif
 

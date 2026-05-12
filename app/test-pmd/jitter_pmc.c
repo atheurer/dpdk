@@ -123,6 +123,46 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		}
 	}
 
+	/* LLC misses (optional — uses a programmable PMC slot) */
+	attr.config = PERF_COUNT_HW_CACHE_MISSES;
+	int fd_llc = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
+	if (fd_llc < 0) {
+		TESTPMD_LOG(WARNING, "perf_event_open(CACHE_MISSES) failed: %s "
+			    "(LLC misses disabled)\n", strerror(errno));
+		ctx->pmc_llc_misses_page = NULL;
+		ctx->pmc_llc_misses_fd = 0;
+	} else {
+		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_llc, 0);
+		if (p == MAP_FAILED) {
+			close(fd_llc);
+			ctx->pmc_llc_misses_page = NULL;
+			ctx->pmc_llc_misses_fd = 0;
+		} else {
+			ctx->pmc_llc_misses_page = p;
+			ctx->pmc_llc_misses_fd = fd_llc;
+		}
+	}
+
+	/* Branch misses (optional — uses a programmable PMC slot) */
+	attr.config = PERF_COUNT_HW_BRANCH_MISSES;
+	int fd_br = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
+	if (fd_br < 0) {
+		TESTPMD_LOG(WARNING, "perf_event_open(BRANCH_MISSES) failed: %s "
+			    "(branch misses disabled)\n", strerror(errno));
+		ctx->pmc_branch_misses_page = NULL;
+		ctx->pmc_branch_misses_fd = 0;
+	} else {
+		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_br, 0);
+		if (p == MAP_FAILED) {
+			close(fd_br);
+			ctx->pmc_branch_misses_page = NULL;
+			ctx->pmc_branch_misses_fd = 0;
+		} else {
+			ctx->pmc_branch_misses_page = p;
+			ctx->pmc_branch_misses_fd = fd_br;
+		}
+	}
+
 	ctx->pmc_enabled = 1;
 	return 0;
 }
@@ -161,6 +201,22 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 	if (ctx->pmc_ref_cycles_fd > 0) {
 		close(ctx->pmc_ref_cycles_fd);
 		ctx->pmc_ref_cycles_fd = 0;
+	}
+	if (ctx->pmc_llc_misses_page != NULL) {
+		munmap(ctx->pmc_llc_misses_page, 4096);
+		ctx->pmc_llc_misses_page = NULL;
+	}
+	if (ctx->pmc_llc_misses_fd > 0) {
+		close(ctx->pmc_llc_misses_fd);
+		ctx->pmc_llc_misses_fd = 0;
+	}
+	if (ctx->pmc_branch_misses_page != NULL) {
+		munmap(ctx->pmc_branch_misses_page, 4096);
+		ctx->pmc_branch_misses_page = NULL;
+	}
+	if (ctx->pmc_branch_misses_fd > 0) {
+		close(ctx->pmc_branch_misses_fd);
+		ctx->pmc_branch_misses_fd = 0;
 	}
 	ctx->pmc_enabled = 0;
 }
