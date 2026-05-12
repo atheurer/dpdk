@@ -50,6 +50,7 @@ struct jitter_record {
 
 	/* Hot-path PMC deltas */
 	uint64_t inst_retired_delta;
+	uint64_t inst_retired_user_delta;
 	uint64_t cycles_unhalted_delta;
 	uint64_t ref_cycles_delta;
 
@@ -114,9 +115,11 @@ struct jitter_record {
 struct jitter_lcore_ctx {
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	struct perf_event_mmap_page *pmc_inst_page;
+	struct perf_event_mmap_page *pmc_inst_user_page;
 	struct perf_event_mmap_page *pmc_cycles_page;
 	struct perf_event_mmap_page *pmc_ref_cycles_page;
 	int pmc_inst_fd;
+	int pmc_inst_user_fd;
 	int pmc_cycles_fd;
 	int pmc_ref_cycles_fd;
 #endif
@@ -282,6 +285,7 @@ struct jitter_iter_state {
 	uint64_t tsc_post_rx;
 	uint64_t tsc_post_process;
 	uint64_t inst_start;
+	uint64_t inst_user_start;
 	uint64_t cycles_start;
 	uint64_t ref_cycles_start;
 	uint32_t rx_ring_depth_before;
@@ -342,15 +346,18 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (likely(ctx->pmc_enabled)) {
 		st->inst_start = jitter_rdpmc_read(ctx->pmc_inst_page);
+		st->inst_user_start = jitter_rdpmc_read(ctx->pmc_inst_user_page);
 		st->cycles_start = jitter_rdpmc_read(ctx->pmc_cycles_page);
 		st->ref_cycles_start = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
 	} else {
 		st->inst_start = 0;
+		st->inst_user_start = 0;
 		st->cycles_start = 0;
 		st->ref_cycles_start = 0;
 	}
 #else
 	st->inst_start = 0;
+	st->inst_user_start = 0;
 	st->cycles_start = 0;
 	st->ref_cycles_start = 0;
 #endif

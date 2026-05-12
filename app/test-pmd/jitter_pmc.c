@@ -59,6 +59,29 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	ctx->pmc_inst_page = p;
 	ctx->pmc_inst_fd = fd_inst;
 
+	/* User-only instructions (exclude_kernel=1) */
+	attr.config = PERF_COUNT_HW_INSTRUCTIONS;
+	attr.exclude_kernel = 1;
+	int fd_inst_user = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
+	if (fd_inst_user < 0) {
+		TESTPMD_LOG(WARNING, "perf_event_open(INSTRUCTIONS user-only) "
+			    "failed: %s (user inst disabled)\n",
+			    strerror(errno));
+		ctx->pmc_inst_user_page = NULL;
+		ctx->pmc_inst_user_fd = 0;
+	} else {
+		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_inst_user, 0);
+		if (p == MAP_FAILED) {
+			close(fd_inst_user);
+			ctx->pmc_inst_user_page = NULL;
+			ctx->pmc_inst_user_fd = 0;
+		} else {
+			ctx->pmc_inst_user_page = p;
+			ctx->pmc_inst_user_fd = fd_inst_user;
+		}
+	}
+	attr.exclude_kernel = 0;
+
 	attr.config = PERF_COUNT_HW_CPU_CYCLES;
 	fd_cyc = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
 	if (fd_cyc < 0) {
@@ -114,6 +137,14 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 	if (ctx->pmc_inst_fd > 0) {
 		close(ctx->pmc_inst_fd);
 		ctx->pmc_inst_fd = 0;
+	}
+	if (ctx->pmc_inst_user_page != NULL) {
+		munmap(ctx->pmc_inst_user_page, 4096);
+		ctx->pmc_inst_user_page = NULL;
+	}
+	if (ctx->pmc_inst_user_fd > 0) {
+		close(ctx->pmc_inst_user_fd);
+		ctx->pmc_inst_user_fd = 0;
 	}
 	if (ctx->pmc_cycles_page != NULL) {
 		munmap(ctx->pmc_cycles_page, 4096);

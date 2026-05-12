@@ -79,6 +79,9 @@ jitter_classify(const struct jitter_record *r)
 			return JITTER_CLASS_FREQ_THROTTLE;
 	}
 
+	if (r->inst_retired_delta > r->inst_retired_user_delta)
+		return JITTER_CLASS_KERNEL_PREEMPTION;
+
 	if (r->cycles_unhalted_delta > 0 &&
 	    r->tsc_delta > 2 * r->cycles_unhalted_delta)
 		return JITTER_CLASS_CSTATE;
@@ -142,6 +145,11 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	fprintf(f, "  Hot-path:\n");
 	fprintf(f, "    inst_retired:    %" PRIu64 "\n",
 		r->inst_retired_delta);
+	fprintf(f, "    inst_user:       %" PRIu64 "\n",
+		r->inst_retired_user_delta);
+	if (r->inst_retired_delta > r->inst_retired_user_delta)
+		fprintf(f, "    inst_kernel:     %" PRIu64 "\n",
+			r->inst_retired_delta - r->inst_retired_user_delta);
 	fprintf(f, "    cycles_unhalted: %" PRIu64 "\n",
 		r->cycles_unhalted_delta);
 	fprintf(f, "    ref_cycles:      %" PRIu64 "\n",
@@ -269,7 +277,7 @@ dump_csv_header(FILE *f, const struct jitter_lcore_ctx *ctx)
 
 	fprintf(f, "lcore_id,port_id,queue_id,tsc_start,tsc_end,"
 		"tsc_delta,delta_us,classification,"
-		"inst_retired_delta,cycles_unhalted_delta,"
+		"inst_retired_delta,inst_retired_user_delta,cycles_unhalted_delta,"
 		"rx_ring_depth_before,rx_ring_depth_after,nb_rx,"
 		"smi_count_delta,aperf_delta,mperf_delta,"
 		"voluntary_cs_delta,nonvoluntary_cs_delta,"
@@ -292,7 +300,7 @@ dump_record_csv(FILE *f, const struct jitter_record *r,
 
 	fprintf(f, "%u,%u,%u,%" PRIu64 ",%" PRIu64 ","
 		"%" PRIu64 ",%.1f,%s,"
-		"%" PRIu64 ",%" PRIu64 ","
+		"%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
 		"%u,%u,%u,"
 		"%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
 		"%" PRIu64 ",%" PRIu64 ","
@@ -302,7 +310,8 @@ dump_record_csv(FILE *f, const struct jitter_record *r,
 		r->lcore_id, r->port_id, r->queue_id,
 		r->tsc_start, r->tsc_end,
 		r->tsc_delta, delta_us, jitter_class_names[cls],
-		r->inst_retired_delta, r->cycles_unhalted_delta,
+		r->inst_retired_delta, r->inst_retired_user_delta,
+		r->cycles_unhalted_delta,
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx,
 		r->smi_count_delta, r->aperf_delta, r->mperf_delta,
 		r->voluntary_cs_delta, r->nonvoluntary_cs_delta,
