@@ -258,6 +258,8 @@ enum {
 	TESTPMD_OPT_JITTER_THRESHOLD_US_NUM,
 #define TESTPMD_OPT_JITTER_RECORD_COUNT "jitter-record-count"
 	TESTPMD_OPT_JITTER_RECORD_COUNT_NUM,
+#define TESTPMD_OPT_JITTER_WARMUP "jitter-warmup"
+	TESTPMD_OPT_JITTER_WARMUP_NUM,
 #define TESTPMD_OPT_JITTER_MSR "jitter-msr"
 	TESTPMD_OPT_JITTER_MSR_NUM,
 #define TESTPMD_OPT_JITTER_AER "jitter-aer"
@@ -401,6 +403,7 @@ static const struct option long_options[] = {
 	NO_ARG(TESTPMD_OPT_JITTER_ENABLE),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_THRESHOLD_US),
 	REQUIRED_ARG(TESTPMD_OPT_JITTER_RECORD_COUNT),
+	REQUIRED_ARG(TESTPMD_OPT_JITTER_WARMUP),
 	NO_ARG(TESTPMD_OPT_JITTER_MSR),
 	NO_ARG(TESTPMD_OPT_JITTER_AER),
 	NO_ARG(TESTPMD_OPT_JITTER_INTERRUPTS),
@@ -581,6 +584,8 @@ usage(char* progname)
 	       " (default 100).\n");
 	printf("  --jitter-record-count=N: per-lcore anomaly ring buffer size"
 	       " (default 1024).\n");
+	printf("  --jitter-warmup=N: skip first N iterations before recording"
+	       " anomalies (default 1000000).\n");
 	printf("  --jitter-msr: enable MSR reads (SMI count, APERF/MPERF).\n");
 	printf("  --jitter-aer: enable PCIe AER register reads on anomaly.\n");
 	printf("  --jitter-interrupts: track per-CPU interrupt counts on anomaly"
@@ -1797,6 +1802,14 @@ launch_args_parse(int argc, char** argv)
 			else
 				rte_exit(EXIT_FAILURE,
 					 "jitter-record-count must be > 0\n");
+			break;
+		case TESTPMD_OPT_JITTER_WARMUP_NUM:
+			n = atoi(optarg);
+			if (n >= 0)
+				jitter_warmup_iterations = n;
+			else
+				rte_exit(EXIT_FAILURE,
+					 "jitter-warmup must be >= 0\n");
 			break;
 		case TESTPMD_OPT_JITTER_MSR_NUM:
 			jitter_msr_enabled = 1;

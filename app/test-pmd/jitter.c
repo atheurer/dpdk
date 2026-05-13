@@ -42,6 +42,7 @@ uint8_t jitter_irq_enabled;
 uint8_t jitter_cs_enabled;
 uint8_t jitter_xstats_enabled;
 uint8_t jitter_ebpf_enabled;
+uint64_t jitter_warmup_iterations = 1000000;
 char jitter_output_path[PATH_MAX] = "";
 char jitter_output_format[16] = "text";
 
@@ -63,9 +64,9 @@ jitter_global_init(void)
 
 	TESTPMD_LOG(NOTICE, "Jitter instrumentation enabled: "
 		    "threshold=%" PRIu64 " us (%" PRIu64 " cycles), "
-		    "records=%u\n",
+		    "records=%u, warmup=%" PRIu64 "\n",
 		    jitter_threshold_us_val, jitter_threshold_cycles,
-		    jitter_record_count);
+		    jitter_record_count, jitter_warmup_iterations);
 
 #ifdef JITTER_HAS_EBPF
 	if (jitter_ebpf_enabled) {
@@ -126,6 +127,7 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 	}
 
 	ctx->record_capacity = jitter_record_count;
+	ctx->warmup_remaining = jitter_warmup_iterations;
 
 	ctx->worst = rte_zmalloc_socket("jitter_worst",
 					sizeof(struct jitter_record) * 10,

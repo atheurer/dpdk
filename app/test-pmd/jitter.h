@@ -167,6 +167,7 @@ struct jitter_lcore_ctx {
 	uint8_t aer_enabled;
 	uint8_t pmc_enabled;
 	uint8_t pmc_init_done;
+	uint64_t warmup_remaining;
 
 	/* Mempool pointer for avail_count on anomaly */
 	struct rte_mempool *mbuf_pool;
@@ -218,6 +219,7 @@ extern uint8_t jitter_irq_enabled;
 extern uint8_t jitter_cs_enabled;
 extern uint8_t jitter_xstats_enabled;
 extern uint8_t jitter_ebpf_enabled;
+extern uint64_t jitter_warmup_iterations;
 extern char jitter_output_path[PATH_MAX];
 extern char jitter_output_format[16];
 
@@ -414,6 +416,10 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 	tsc_end = rte_rdtsc();
 	delta = tsc_end - st->tsc_start;
 	ctx->total_iterations++;
+	if (unlikely(ctx->warmup_remaining > 0)) {
+		ctx->warmup_remaining--;
+		return;
+	}
 	if (delta > ctx->max_iter_cycles)
 		ctx->max_iter_cycles = delta;
 	if (unlikely(delta >= jitter_threshold_cycles))
