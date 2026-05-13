@@ -2539,6 +2539,8 @@ start_packet_forwarding(int with_tx_first)
 	rxtx_config_display();
 
 	fwd_stats_reset();
+	for (i = 0; i < cur_fwd_config.nb_fwd_ports; i++)
+		rte_eth_stats_reset(fwd_ports_ids[i]);
 	if (with_tx_first) {
 		while (with_tx_first--) {
 			launch_packet_forwarding(
