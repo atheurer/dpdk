@@ -126,6 +126,20 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 	}
 
 	ctx->record_capacity = jitter_record_count;
+
+	ctx->worst = rte_zmalloc_socket("jitter_worst",
+					sizeof(struct jitter_record) * 10,
+					RTE_CACHE_LINE_SIZE, socket_id);
+	if (ctx->worst == NULL) {
+		TESTPMD_LOG(ERR, "Failed to allocate jitter worst buffer for lcore %u\n",
+			    lcore_id);
+		rte_free(ctx->records);
+		rte_free(ctx);
+		return NULL;
+	}
+	ctx->worst_capacity = 10;
+	ctx->worst_count = 0;
+
 	ctx->lcore_id = lcore_id;
 	ctx->primary_port_id = port_id;
 	ctx->primary_queue_id = queue_id;
@@ -181,6 +195,7 @@ jitter_lcore_fini(struct jitter_lcore_ctx *ctx)
 	if (ctx->msr_fd >= 0)
 		close(ctx->msr_fd);
 
+	rte_free(ctx->worst);
 	rte_free(ctx->records);
 	rte_free(ctx);
 }
@@ -386,6 +401,26 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	{
 		if (ctx->irq_enabled)
 			jitter_irq_update_baseline(ctx);
+	}
+
+	/* Insert into worst-N buffer if this anomaly is longer than
+	 * the shortest entry (or buffer isn't full yet). */
+	if (ctx->worst != NULL) {
+		if (ctx->worst_count < ctx->worst_capacity) {
+			ctx->worst[ctx->worst_count] = *r;
+			ctx->worst_count++;
+		} else {
+			uint32_t min_idx = 0;
+			uint32_t i;
+
+			for (i = 1; i < ctx->worst_count; i++) {
+				if (ctx->worst[i].tsc_delta <
+				    ctx->worst[min_idx].tsc_delta)
+					min_idx = i;
+			}
+			if (r->tsc_delta > ctx->worst[min_idx].tsc_delta)
+				ctx->worst[min_idx] = *r;
+		}
 	}
 }
 

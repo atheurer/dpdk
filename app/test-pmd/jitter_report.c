@@ -416,15 +416,13 @@ jitter_dump_top(uint32_t n)
 	uint32_t total = 0, cap = 0;
 	unsigned int lcore_id;
 
+	/* Collect from worst-N buffers (preserved across ring wraps) */
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
 
-		if (ctx == NULL || ctx->total_anomalies == 0)
+		if (ctx == NULL || ctx->worst == NULL)
 			continue;
-		if (ctx->record_head > ctx->record_capacity)
-			cap += ctx->record_capacity;
-		else
-			cap += ctx->record_head;
+		cap += ctx->worst_count;
 	}
 
 	if (cap == 0) {
@@ -438,19 +436,13 @@ jitter_dump_top(uint32_t n)
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		struct jitter_lcore_ctx *ctx = jitter_lcore_ctxs[lcore_id];
-		uint32_t start, i;
+		uint32_t i;
 
-		if (ctx == NULL || ctx->total_anomalies == 0)
+		if (ctx == NULL || ctx->worst == NULL)
 			continue;
 
-		if (ctx->record_head > ctx->record_capacity)
-			start = ctx->record_head - ctx->record_capacity;
-		else
-			start = 0;
-
-		for (i = start; i < ctx->record_head; i++) {
-			entries[total].r =
-				&ctx->records[i % ctx->record_capacity];
+		for (i = 0; i < ctx->worst_count; i++) {
+			entries[total].r = &ctx->worst[i];
 			entries[total].ctx = ctx;
 			entries[total].idx = i;
 			total++;
@@ -462,7 +454,7 @@ jitter_dump_top(uint32_t n)
 	if (n > total)
 		n = total;
 
-	fprintf(stdout, "\n--- Top %u anomalies by duration ---\n\n", n);
+	fprintf(stdout, "\n--- Top %u anomalies by duration (all-time worst) ---\n\n", n);
 	for (uint32_t i = 0; i < n; i++)
 		dump_record_text(stdout, entries[i].r,
 				 entries[i].idx, entries[i].ctx);
@@ -530,5 +522,10 @@ jitter_reset_all(void)
 		ctx->total_threshold = 0;
 		ctx->total_cs_events = 0;
 		ctx->total_irq_events = 0;
+		if (ctx->worst != NULL) {
+			memset(ctx->worst, 0,
+			       sizeof(struct jitter_record) * ctx->worst_capacity);
+			ctx->worst_count = 0;
+		}
 	}
 }

@@ -140,10 +140,15 @@ struct jitter_lcore_ctx {
 	uint32_t last_aer_correctable;
 	uint32_t last_aer_uncorrectable;
 
-	/* Ring buffer */
+	/* Ring buffer (wraps — recent anomalies) */
 	struct jitter_record *records;
 	uint32_t record_capacity;
 	uint32_t record_head;
+
+	/* Worst-N buffer (never overwritten — longest anomalies) */
+	struct jitter_record *worst;
+	uint32_t worst_capacity;
+	uint32_t worst_count;
 	uint64_t total_anomalies;
 	uint64_t total_iterations;
 	uint64_t max_iter_cycles;
