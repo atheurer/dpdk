@@ -300,6 +300,11 @@ rxq_burst_v(struct mlx5_rxq_data *rxq, struct rte_mbuf **pkts,
 	unsigned int elts_idx;
 	int ret;
 
+	struct rte_ethdev_rx_burst_tsc *_jtsc =
+		(rxq->port_id < RTE_ETHDEV_JITTER_MAX_PORTS) ?
+		&rte_ethdev_rx_burst_tsc[rxq->port_id][0] : NULL;
+	uint64_t _t;
+
 	MLX5_ASSERT(rxq->sges_n == 0);
 	MLX5_ASSERT(rxq->cqe_n == rxq->elts_n);
 	cq = &(*rxq->cqes)[cq_idx];
@@ -308,7 +313,9 @@ rxq_burst_v(struct mlx5_rxq_data *rxq, struct rte_mbuf **pkts,
 	rte_prefetch0(cq + 2);
 	rte_prefetch0(cq + 3);
 	pkts_n = RTE_MIN(pkts_n, MLX5_VPMD_RX_MAX_BURST);
+	_t = rte_rdtsc();
 	mlx5_rx_replenish_bulk_mbuf(rxq);
+	if (_jtsc) _jtsc->alloc += rte_rdtsc() - _t;
 	/* See if there're unreturned mbufs from compressed CQE. */
 	rcvd_pkt = rxq->decompressed;
 	if (rcvd_pkt > 0) {
@@ -342,7 +349,9 @@ rxq_burst_v(struct mlx5_rxq_data *rxq, struct rte_mbuf **pkts,
 		}
 	}
 	/* Process all the CQEs */
+	_t = rte_rdtsc();
 	nocmp_n = rxq_cq_process_v(rxq, cq, elts, pkts, pkts_n, err, &comp_idx);
+	if (_jtsc) _jtsc->poll += rte_rdtsc() - _t;
 	/* If no new CQE seen, return without updating cq_db. */
 	if (unlikely(!nocmp_n && comp_idx == MLX5_VPMD_DESCS_PER_LOOP)) {
 		*no_cq = true;
@@ -414,12 +423,9 @@ mlx5_rx_burst_vec(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	rte_ethdev_rx_burst_tsc_begin(rxq->port_id, 0);
 
 	do {
-		uint64_t _poll_t = rte_rdtsc();
 		err = 0;
 		nb_rx = rxq_burst_v(rxq, pkts + tn, pkts_n - tn,
 				    &err, &no_cq);
-		rte_ethdev_rx_burst_tsc[rxq->port_id][0].poll +=
-			rte_rdtsc() - _poll_t;
 		if (unlikely(err | rxq->err_state))
 			nb_rx = rxq_handle_pending_error(rxq, pkts + tn, nb_rx);
 		tn += nb_rx;
