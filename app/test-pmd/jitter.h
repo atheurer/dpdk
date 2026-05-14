@@ -434,10 +434,13 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 
 	if (unlikely(ctx == NULL))
 		return;
-	tsc_end = rte_rdtsc();
+	/* Read core PMCs (inst, cycles) as close to TSC as possible
+	 * so their deltas align with tsc_delta. OCR counters are
+	 * event counts (not cycles) so read order matters less. */
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (likely(ctx->pmc_enabled)) {
 		uint64_t v;
+		tsc_end = rte_rdtsc();
 		v = jitter_rdpmc_read(ctx->pmc_inst_page);
 		st->pmc_inst_delta = jitter_pmc_delta(v, ctx->last_pmc_inst);
 		ctx->last_pmc_inst = v;
@@ -460,8 +463,11 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 			st->pmc_ocr_fwd_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_fwd);
 			ctx->last_pmc_ocr_fwd = v;
 		}
-	}
+	} else
 #endif
+	{
+		tsc_end = rte_rdtsc();
+	}
 	delta = tsc_end - st->tsc_start;
 	ctx->total_iterations++;
 	if (unlikely(ctx->warmup_remaining > 0)) {
