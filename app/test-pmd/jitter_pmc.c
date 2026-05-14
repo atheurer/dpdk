@@ -163,6 +163,53 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		}
 	}
 
+	/* Platform-specific raw events (Sierra Forest / Crestmont) */
+	struct {
+		uint64_t config;
+		const char *name;
+		struct perf_event_mmap_page **page;
+		int *fd;
+	} raw_events[] = {
+		{ 0x7834, "mem_bound_stalls_load.llc_miss",
+		  &ctx->pmc_mem_stalls_llc_miss_page,
+		  &ctx->pmc_mem_stalls_llc_miss_fd },
+		{ 0x0634, "mem_bound_stalls_load.llc_hit",
+		  &ctx->pmc_mem_stalls_llc_hit_page,
+		  &ctx->pmc_mem_stalls_llc_hit_fd },
+		{ 0x4f2e, "longest_lat_cache.reference",
+		  &ctx->pmc_llc_refs_page,
+		  &ctx->pmc_llc_refs_fd },
+	};
+
+	for (unsigned i = 0; i < RTE_DIM(raw_events); i++) {
+		memset(&attr, 0, sizeof(attr));
+		attr.type = PERF_TYPE_RAW;
+		attr.size = sizeof(attr);
+		attr.config = raw_events[i].config;
+		attr.disabled = 0;
+		attr.exclude_kernel = 0;
+		attr.exclude_hv = 1;
+		attr.pinned = 0;
+
+		int raw_fd = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
+		if (raw_fd < 0) {
+			TESTPMD_LOG(INFO, "%s not available on this platform\n",
+				    raw_events[i].name);
+			*raw_events[i].page = NULL;
+			*raw_events[i].fd = 0;
+		} else {
+			p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, raw_fd, 0);
+			if (p == MAP_FAILED) {
+				close(raw_fd);
+				*raw_events[i].page = NULL;
+				*raw_events[i].fd = 0;
+			} else {
+				*raw_events[i].page = p;
+				*raw_events[i].fd = raw_fd;
+			}
+		}
+	}
+
 	ctx->pmc_enabled = 1;
 	return 0;
 }
@@ -217,6 +264,30 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 	if (ctx->pmc_branch_misses_fd > 0) {
 		close(ctx->pmc_branch_misses_fd);
 		ctx->pmc_branch_misses_fd = 0;
+	}
+	if (ctx->pmc_mem_stalls_llc_miss_page != NULL) {
+		munmap(ctx->pmc_mem_stalls_llc_miss_page, 4096);
+		ctx->pmc_mem_stalls_llc_miss_page = NULL;
+	}
+	if (ctx->pmc_mem_stalls_llc_miss_fd > 0) {
+		close(ctx->pmc_mem_stalls_llc_miss_fd);
+		ctx->pmc_mem_stalls_llc_miss_fd = 0;
+	}
+	if (ctx->pmc_mem_stalls_llc_hit_page != NULL) {
+		munmap(ctx->pmc_mem_stalls_llc_hit_page, 4096);
+		ctx->pmc_mem_stalls_llc_hit_page = NULL;
+	}
+	if (ctx->pmc_mem_stalls_llc_hit_fd > 0) {
+		close(ctx->pmc_mem_stalls_llc_hit_fd);
+		ctx->pmc_mem_stalls_llc_hit_fd = 0;
+	}
+	if (ctx->pmc_llc_refs_page != NULL) {
+		munmap(ctx->pmc_llc_refs_page, 4096);
+		ctx->pmc_llc_refs_page = NULL;
+	}
+	if (ctx->pmc_llc_refs_fd > 0) {
+		close(ctx->pmc_llc_refs_fd);
+		ctx->pmc_llc_refs_fd = 0;
 	}
 	ctx->pmc_enabled = 0;
 }

@@ -55,6 +55,9 @@ struct jitter_record {
 	uint64_t ref_cycles_delta;
 	uint64_t llc_misses_delta;
 	uint64_t branch_misses_delta;
+	uint64_t mem_stalls_llc_miss_delta;
+	uint64_t mem_stalls_llc_hit_delta;
+	uint64_t llc_refs_delta;
 
 	/* Device-side state */
 	uint32_t rx_ring_depth_before;
@@ -128,6 +131,12 @@ struct jitter_lcore_ctx {
 	int pmc_ref_cycles_fd;
 	int pmc_llc_misses_fd;
 	int pmc_branch_misses_fd;
+	struct perf_event_mmap_page *pmc_mem_stalls_llc_miss_page;
+	struct perf_event_mmap_page *pmc_mem_stalls_llc_hit_page;
+	struct perf_event_mmap_page *pmc_llc_refs_page;
+	int pmc_mem_stalls_llc_miss_fd;
+	int pmc_mem_stalls_llc_hit_fd;
+	int pmc_llc_refs_fd;
 #endif
 
 	/* Last-known cold-path values */
@@ -303,6 +312,9 @@ struct jitter_iter_state {
 	uint64_t ref_cycles_start;
 	uint64_t llc_misses_start;
 	uint64_t branch_misses_start;
+	uint64_t mem_stalls_llc_miss_start;
+	uint64_t mem_stalls_llc_hit_start;
+	uint64_t llc_refs_start;
 	uint32_t rx_ring_depth_before;
 	uint16_t port_id;
 	uint16_t queue_id;
@@ -366,6 +378,9 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 		st->ref_cycles_start = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
 		st->llc_misses_start = jitter_rdpmc_read(ctx->pmc_llc_misses_page);
 		st->branch_misses_start = jitter_rdpmc_read(ctx->pmc_branch_misses_page);
+		st->mem_stalls_llc_miss_start = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_miss_page);
+		st->mem_stalls_llc_hit_start = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_hit_page);
+		st->llc_refs_start = jitter_rdpmc_read(ctx->pmc_llc_refs_page);
 	} else {
 		st->inst_start = 0;
 		st->inst_user_start = 0;
@@ -373,6 +388,9 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 		st->ref_cycles_start = 0;
 		st->llc_misses_start = 0;
 		st->branch_misses_start = 0;
+		st->mem_stalls_llc_miss_start = 0;
+		st->mem_stalls_llc_hit_start = 0;
+		st->llc_refs_start = 0;
 	}
 #else
 	st->inst_start = 0;

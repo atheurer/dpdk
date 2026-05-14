@@ -306,6 +306,23 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 			r->branch_misses_delta =
 				br_end - st->branch_misses_start;
 		}
+		if (ctx->pmc_mem_stalls_llc_miss_page != NULL) {
+			uint64_t v = jitter_rdpmc_read(
+				ctx->pmc_mem_stalls_llc_miss_page);
+			r->mem_stalls_llc_miss_delta =
+				v - st->mem_stalls_llc_miss_start;
+		}
+		if (ctx->pmc_mem_stalls_llc_hit_page != NULL) {
+			uint64_t v = jitter_rdpmc_read(
+				ctx->pmc_mem_stalls_llc_hit_page);
+			r->mem_stalls_llc_hit_delta =
+				v - st->mem_stalls_llc_hit_start;
+		}
+		if (ctx->pmc_llc_refs_page != NULL) {
+			uint64_t v = jitter_rdpmc_read(
+				ctx->pmc_llc_refs_page);
+			r->llc_refs_delta = v - st->llc_refs_start;
+		}
 	}
 #endif
 

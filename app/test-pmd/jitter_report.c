@@ -170,6 +170,15 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		r->llc_misses_delta);
 	fprintf(f, "    branch_misses:   %" PRIu64 "\n",
 		r->branch_misses_delta);
+	if (r->mem_stalls_llc_miss_delta > 0 || r->mem_stalls_llc_hit_delta > 0
+	    || r->llc_refs_delta > 0) {
+		fprintf(f, "    mem_stall_llc_miss: %" PRIu64 " cycles\n",
+			r->mem_stalls_llc_miss_delta);
+		fprintf(f, "    mem_stall_llc_hit:  %" PRIu64 " cycles\n",
+			r->mem_stalls_llc_hit_delta);
+		fprintf(f, "    llc_refs:          %" PRIu64 "\n",
+			r->llc_refs_delta);
+	}
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	if (r->flags & JITTER_FLAG_IRQ_EVENT) {
