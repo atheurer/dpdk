@@ -302,8 +302,6 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		r->ref_cycles_delta = st->pmc_ref_cycles_delta;
 		r->ocr_l3_hit_snoop_hitm_delta = st->pmc_ocr_hitm_delta;
 		r->ocr_l3_hit_snoop_fwd_delta = st->pmc_ocr_fwd_delta;
-		r->ocr_l3_miss_delta = st->pmc_ocr_l3miss_delta;
-		r->machine_clears_mem_ord_delta = st->pmc_mclr_memord_delta;
 	}
 #endif
 

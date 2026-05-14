@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <rte_common.h>
 #include <rte_log.h>
@@ -137,10 +138,60 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	}
 
 	/*
-	 * DISABLED: OCR/raw events cause PMI interrupt storm on isolated
-	 * CPUs. Need to investigate whether direct MSR programming avoids
-	 * this. See git history for the raw event setup code.
+	 * OCR events via direct MSR programming — bypasses perf_event_open
+	 * to avoid PMI interrupt storm on isolated CPUs.
+	 *
+	 * Uses PMC slots 6 and 7 (typically unused by perf_event_open).
+	 * PERFEVTSEL format: EN(22) | OS(17) | USR(16) | umask(15:8) | event(7:0)
+	 * INT bit (20) is NOT set — no overflow interrupts.
+	 *
+	 * OCR events use event code 0xB7:
+	 *   umask=0x01 → filter in MSR_OFFCORE_RSP_0 (0x1A6)
+	 *   umask=0x02 → filter in MSR_OFFCORE_RSP_1 (0x1A7)
 	 */
+#define IA32_PERFEVTSEL6  0x18C
+#define IA32_PERFEVTSEL7  0x18D
+#define IA32_PMC6         0xC7
+#define IA32_PMC7         0xC8
+#define MSR_OFFCORE_RSP_0 0x1A6
+#define MSR_OFFCORE_RSP_1 0x1A7
+#define PERFEVTSEL_EN     (1ULL << 22)
+#define PERFEVTSEL_OS     (1ULL << 17)
+#define PERFEVTSEL_USR    (1ULL << 16)
+
+	{
+		char msr_path[64];
+		snprintf(msr_path, sizeof(msr_path), "/dev/cpu/%d/msr", cpu);
+		int msr_fd = open(msr_path, O_RDWR);
+		if (msr_fd < 0) {
+			TESTPMD_LOG(WARNING, "Cannot open %s for OCR MSR "
+				    "programming: %s\n", msr_path,
+				    strerror(errno));
+		} else {
+			uint64_t evtsel, rsp;
+
+			/* Slot 6: ocr.demand_data_rd.l3_hit.snoop_hitm */
+			rsp = 0x10003c0001ULL;
+			pwrite(msr_fd, &rsp, 8, MSR_OFFCORE_RSP_0);
+			evtsel = PERFEVTSEL_EN | PERFEVTSEL_OS |
+				 PERFEVTSEL_USR | (0x01ULL << 8) | 0xB7;
+			pwrite(msr_fd, &evtsel, 8, IA32_PERFEVTSEL6);
+			ctx->ocr_msr_fd = msr_fd;
+			ctx->ocr_slot6_enabled = 1;
+			TESTPMD_LOG(NOTICE, "OCR slot 6: snoop_hitm (MSR "
+				    "direct, no interrupts)\n");
+
+			/* Slot 7: ocr.demand_data_rd.l3_hit.snoop_hit_with_fwd */
+			rsp = 0x8003c0001ULL;
+			pwrite(msr_fd, &rsp, 8, MSR_OFFCORE_RSP_1);
+			evtsel = PERFEVTSEL_EN | PERFEVTSEL_OS |
+				 PERFEVTSEL_USR | (0x02ULL << 8) | 0xB7;
+			pwrite(msr_fd, &evtsel, 8, IA32_PERFEVTSEL7);
+			ctx->ocr_slot7_enabled = 1;
+			TESTPMD_LOG(NOTICE, "OCR slot 7: snoop_fwd (MSR "
+				    "direct, no interrupts)\n");
+		}
+	}
 
 	ctx->pmc_enabled = 1;
 	return 0;
@@ -181,37 +232,19 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 		close(ctx->pmc_ref_cycles_fd);
 		ctx->pmc_ref_cycles_fd = 0;
 	}
-	if (ctx->pmc_ocr_hitm_page != NULL) {
-		munmap(ctx->pmc_ocr_hitm_page, 4096);
-		ctx->pmc_ocr_hitm_page = NULL;
-	}
-	if (ctx->pmc_ocr_hitm_fd > 0) {
-		close(ctx->pmc_ocr_hitm_fd);
-		ctx->pmc_ocr_hitm_fd = 0;
-	}
-	if (ctx->pmc_ocr_fwd_page != NULL) {
-		munmap(ctx->pmc_ocr_fwd_page, 4096);
-		ctx->pmc_ocr_fwd_page = NULL;
-	}
-	if (ctx->pmc_ocr_fwd_fd > 0) {
-		close(ctx->pmc_ocr_fwd_fd);
-		ctx->pmc_ocr_fwd_fd = 0;
-	}
-	if (ctx->pmc_ocr_l3miss_page != NULL) {
-		munmap(ctx->pmc_ocr_l3miss_page, 4096);
-		ctx->pmc_ocr_l3miss_page = NULL;
-	}
-	if (ctx->pmc_ocr_l3miss_fd > 0) {
-		close(ctx->pmc_ocr_l3miss_fd);
-		ctx->pmc_ocr_l3miss_fd = 0;
-	}
-	if (ctx->pmc_mclr_memord_page != NULL) {
-		munmap(ctx->pmc_mclr_memord_page, 4096);
-		ctx->pmc_mclr_memord_page = NULL;
-	}
-	if (ctx->pmc_mclr_memord_fd > 0) {
-		close(ctx->pmc_mclr_memord_fd);
-		ctx->pmc_mclr_memord_fd = 0;
+	/* Disable MSR-programmed OCR counters */
+	if (ctx->ocr_msr_fd > 0) {
+		uint64_t zero = 0;
+		if (ctx->ocr_slot6_enabled) {
+			pwrite(ctx->ocr_msr_fd, &zero, 8, IA32_PERFEVTSEL6);
+			ctx->ocr_slot6_enabled = 0;
+		}
+		if (ctx->ocr_slot7_enabled) {
+			pwrite(ctx->ocr_msr_fd, &zero, 8, IA32_PERFEVTSEL7);
+			ctx->ocr_slot7_enabled = 0;
+		}
+		close(ctx->ocr_msr_fd);
+		ctx->ocr_msr_fd = 0;
 	}
 	ctx->pmc_enabled = 0;
 }

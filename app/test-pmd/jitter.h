@@ -55,8 +55,6 @@ struct jitter_record {
 	uint64_t ref_cycles_delta;
 	uint64_t ocr_l3_hit_snoop_hitm_delta;
 	uint64_t ocr_l3_hit_snoop_fwd_delta;
-	uint64_t ocr_l3_miss_delta;
-	uint64_t machine_clears_mem_ord_delta;
 
 	/* PMD rx_burst phase timing (populated from PMD-specific rxq data) */
 	uint64_t rx_burst_tsc_total;
@@ -128,18 +126,14 @@ struct jitter_lcore_ctx {
 	struct perf_event_mmap_page *pmc_inst_user_page;
 	struct perf_event_mmap_page *pmc_cycles_page;
 	struct perf_event_mmap_page *pmc_ref_cycles_page;
-	struct perf_event_mmap_page *pmc_ocr_hitm_page;
-	struct perf_event_mmap_page *pmc_ocr_fwd_page;
 	int pmc_inst_fd;
 	int pmc_inst_user_fd;
 	int pmc_cycles_fd;
 	int pmc_ref_cycles_fd;
-	int pmc_ocr_hitm_fd;
-	int pmc_ocr_fwd_fd;
-	struct perf_event_mmap_page *pmc_ocr_l3miss_page;
-	struct perf_event_mmap_page *pmc_mclr_memord_page;
-	int pmc_ocr_l3miss_fd;
-	int pmc_mclr_memord_fd;
+	/* Direct MSR-programmed OCR counters (no perf_event_open) */
+	int ocr_msr_fd;
+	uint8_t ocr_slot6_enabled;  /* snoop_hitm via rdpmc(6) */
+	uint8_t ocr_slot7_enabled;  /* snoop_fwd via rdpmc(7) */
 #endif
 
 	/* Last-known cold-path values */
@@ -159,8 +153,6 @@ struct jitter_lcore_ctx {
 	uint64_t last_pmc_ref_cycles;
 	uint64_t last_pmc_ocr_hitm;
 	uint64_t last_pmc_ocr_fwd;
-	uint64_t last_pmc_ocr_l3miss;
-	uint64_t last_pmc_mclr_memord;
 
 	/* Ring buffer (wraps — recent anomalies) */
 	struct jitter_record *records;
@@ -330,8 +322,6 @@ struct jitter_iter_state {
 	uint64_t pmc_ref_cycles_delta;
 	uint64_t pmc_ocr_hitm_delta;
 	uint64_t pmc_ocr_fwd_delta;
-	uint64_t pmc_ocr_l3miss_delta;
-	uint64_t pmc_mclr_memord_delta;
 	/* NIC stats captured in hot path on anomaly */
 	uint64_t imissed_end;
 	uint64_t rx_nombuf_end;
@@ -372,6 +362,16 @@ jitter_rdpmc_read(struct perf_event_mmap_page *pc)
 	} while (pc->lock != seq);
 
 	return count + offset;
+}
+
+/* Direct rdpmc read by counter index (no perf_event mmap page needed).
+ * Requires CR4.PCE set (/sys/bus/event_source/devices/cpu/rdpmc >= 2). */
+static __rte_always_inline uint64_t
+jitter_rdpmc_index(uint32_t idx)
+{
+	uint32_t low, high;
+	__asm__ volatile("rdpmc" : "=a"(low), "=d"(high) : "c"(idx));
+	return ((uint64_t)high << 32) | low;
 }
 
 #define JITTER_PMC_WIDTH 48
@@ -450,18 +450,16 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 		v = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
 		st->pmc_ref_cycles_delta = jitter_pmc_delta(v, ctx->last_pmc_ref_cycles);
 		ctx->last_pmc_ref_cycles = v;
-		v = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
-		st->pmc_ocr_hitm_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_hitm);
-		ctx->last_pmc_ocr_hitm = v;
-		v = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
-		st->pmc_ocr_fwd_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_fwd);
-		ctx->last_pmc_ocr_fwd = v;
-		v = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
-		st->pmc_ocr_l3miss_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_l3miss);
-		ctx->last_pmc_ocr_l3miss = v;
-		v = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
-		st->pmc_mclr_memord_delta = jitter_pmc_delta(v, ctx->last_pmc_mclr_memord);
-		ctx->last_pmc_mclr_memord = v;
+		if (ctx->ocr_slot6_enabled) {
+			v = jitter_rdpmc_index(6);
+			st->pmc_ocr_hitm_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_hitm);
+			ctx->last_pmc_ocr_hitm = v;
+		}
+		if (ctx->ocr_slot7_enabled) {
+			v = jitter_rdpmc_index(7);
+			st->pmc_ocr_fwd_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_fwd);
+			ctx->last_pmc_ocr_fwd = v;
+		}
 	}
 #endif
 	delta = tsc_end - st->tsc_start;

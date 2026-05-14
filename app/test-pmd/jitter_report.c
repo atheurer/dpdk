@@ -170,10 +170,6 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		r->ocr_l3_hit_snoop_hitm_delta);
 	fprintf(f, "    snoop_fwd:       %" PRIu64 "\n",
 		r->ocr_l3_hit_snoop_fwd_delta);
-	fprintf(f, "    l3_miss:         %" PRIu64 "\n",
-		r->ocr_l3_miss_delta);
-	fprintf(f, "    mclr_mem_ord:    %" PRIu64 "\n",
-		r->machine_clears_mem_ord_delta);
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	if (r->rx_burst_tsc_total > 0) {
