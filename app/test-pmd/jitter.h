@@ -59,6 +59,12 @@ struct jitter_record {
 	uint64_t mem_stalls_llc_hit_delta;
 	uint64_t llc_refs_delta;
 
+	/* PMD rx_burst phase timing (populated from PMD-specific rxq data) */
+	uint64_t rx_burst_tsc_total;
+	uint64_t rx_burst_tsc_poll;
+	uint64_t rx_burst_tsc_alloc;
+	uint64_t rx_burst_tsc_wqe;
+
 	/* Device-side state */
 	uint32_t rx_ring_depth_before;
 	uint32_t rx_ring_depth_after;
@@ -270,6 +276,10 @@ void jitter_pmc_lazy_init(struct jitter_lcore_ctx *ctx);
 
 /* xstat discovery — called from jitter_lcore_init() */
 void jitter_xstats_init(struct jitter_lcore_ctx *ctx, uint16_t port_id);
+
+/* PMD rx_burst phase timing reader */
+void jitter_read_pmd_rx_tsc(struct rte_eth_dev *dev, uint16_t queue_id,
+			     struct jitter_record *r);
 
 /* MSR helpers (jitter_msr.c) */
 int jitter_msr_open(int cpu);

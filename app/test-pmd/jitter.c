@@ -27,6 +27,7 @@
 
 #include "testpmd.h"
 #include "jitter.h"
+#include "mlx5_rx.h"
 
 #define MSR_SMI_COUNT   0x34
 #define MSR_IA32_APERF  0xE8
@@ -244,6 +245,21 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 	{
 		int cnt = rte_eth_rx_queue_count(st->port_id, st->queue_id);
 		r->rx_ring_depth_after = cnt > 0 ? (uint32_t)cnt : 0;
+	}
+
+	/* Read PMD rx_burst phase timing from rxq data.
+	 * The mlx5 PMD populates TSC fields during rx_burst. */
+	{
+		struct mlx5_rxq_data *rxq_data =
+			rte_eth_devices[st->port_id].data->
+			rx_queues[st->queue_id];
+		if (rxq_data != NULL && rxq_data->rx_burst_tsc_start > 0) {
+			r->rx_burst_tsc_total =
+				tsc_end - rxq_data->rx_burst_tsc_start;
+			r->rx_burst_tsc_poll = rxq_data->rx_burst_tsc_poll;
+			r->rx_burst_tsc_alloc = rxq_data->rx_burst_tsc_alloc;
+			r->rx_burst_tsc_wqe = rxq_data->rx_burst_tsc_wqe;
+		}
 	}
 
 	/*

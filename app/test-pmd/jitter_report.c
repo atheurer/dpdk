@@ -181,6 +181,22 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 	}
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
+	if (r->rx_burst_tsc_total > 0) {
+		double hz = rte_get_tsc_hz();
+		fprintf(f, "    rx_burst detail:\n");
+		fprintf(f, "      total:  %.1f us  (%" PRIu64 " cycles)\n",
+			(double)r->rx_burst_tsc_total * 1e6 / hz,
+			r->rx_burst_tsc_total);
+		fprintf(f, "      poll:   %.1f us  (%" PRIu64 " cycles)\n",
+			(double)r->rx_burst_tsc_poll * 1e6 / hz,
+			r->rx_burst_tsc_poll);
+		fprintf(f, "      alloc:  %.1f us  (%" PRIu64 " cycles)\n",
+			(double)r->rx_burst_tsc_alloc * 1e6 / hz,
+			r->rx_burst_tsc_alloc);
+		fprintf(f, "      wqe:    %.1f us  (%" PRIu64 " cycles)\n",
+			(double)r->rx_burst_tsc_wqe * 1e6 / hz,
+			r->rx_burst_tsc_wqe);
+	}
 	if (r->flags & JITTER_FLAG_IRQ_EVENT) {
 		fprintf(f, "    Interrupts (eBPF-detected):\n");
 		fprintf(f, "      eBPF irq ring: head=%u prev_head=%u\n",
