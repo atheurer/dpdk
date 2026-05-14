@@ -315,6 +315,11 @@ struct jitter_iter_state {
 	uint64_t mem_stalls_llc_miss_start;
 	uint64_t mem_stalls_llc_hit_start;
 	uint64_t llc_refs_start;
+	/* NIC stats captured in hot path on anomaly */
+	uint64_t imissed_end;
+	uint64_t rx_nombuf_end;
+	uint64_t ierrors_end;
+	uint8_t  nic_stats_valid;
 	/* End values captured in hot path */
 	uint64_t inst_end;
 	uint64_t inst_user_end;
@@ -475,6 +480,17 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 #endif
 	if (likely(flags == 0))
 		return;
+	{
+		struct rte_eth_stats _stats;
+		if (rte_eth_stats_get(st->port_id, &_stats) == 0) {
+			st->imissed_end = _stats.imissed;
+			st->rx_nombuf_end = _stats.rx_nombuf;
+			st->ierrors_end = _stats.ierrors;
+			st->nic_stats_valid = 1;
+		} else {
+			st->nic_stats_valid = 0;
+		}
+	}
 	jitter_record_anomaly(ctx, st, tsc_end, delta, nb_rx, flags);
 #ifdef JITTER_HAS_EBPF
 	/* Consume the event seq/head in the hot path to guarantee

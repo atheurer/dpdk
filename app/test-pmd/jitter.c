@@ -316,22 +316,19 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		ctx->last_aer_uncorrectable = uncorr;
 	}
 
-	/* NIC stats deltas (userspace MMIO for most PMDs — no syscall) */
-	{
-		struct rte_eth_stats stats;
-		if (rte_eth_stats_get(st->port_id, &stats) == 0) {
-			r->rx_missed_delta = stats.imissed -
-				ctx->last_xstats[JITTER_XSTAT_RX_MISSED];
-			r->rx_nombuf_delta = stats.rx_nombuf -
-				ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF];
-			r->ierrors_delta = stats.ierrors -
-				ctx->last_xstats[JITTER_XSTAT_IERRORS];
-			ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
-				stats.imissed;
-			ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] =
-				stats.rx_nombuf;
-			ctx->last_xstats[JITTER_XSTAT_IERRORS] = stats.ierrors;
-		}
+	/* NIC stats deltas (captured in hot path) */
+	if (st->nic_stats_valid) {
+		r->rx_missed_delta = st->imissed_end -
+			ctx->last_xstats[JITTER_XSTAT_RX_MISSED];
+		r->rx_nombuf_delta = st->rx_nombuf_end -
+			ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF];
+		r->ierrors_delta = st->ierrors_end -
+			ctx->last_xstats[JITTER_XSTAT_IERRORS];
+		ctx->last_xstats[JITTER_XSTAT_RX_MISSED] =
+			st->imissed_end;
+		ctx->last_xstats[JITTER_XSTAT_RX_NOMBUF] =
+			st->rx_nombuf_end;
+		ctx->last_xstats[JITTER_XSTAT_IERRORS] = st->ierrors_end;
 	}
 
 	/* Mempool avail count */
