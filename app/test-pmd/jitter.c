@@ -27,7 +27,7 @@
 
 #include "testpmd.h"
 #include "jitter.h"
-#include "mlx5_rx.h"
+#include <rte_ethdev_jitter.h>
 
 #define MSR_SMI_COUNT   0x34
 #define MSR_IA32_APERF  0xE8
@@ -247,28 +247,15 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		r->rx_ring_depth_after = cnt > 0 ? (uint32_t)cnt : 0;
 	}
 
-	/* Read PMD rx_burst phase timing from rxq data.
-	 * The mlx5 PMD populates TSC fields during rx_burst. */
-	{
-		struct mlx5_rxq_data *rxq_data =
-			rte_eth_devices[st->port_id].data->
-			rx_queues[st->queue_id];
-		if (rxq_data != NULL) {
-			if (ctx->total_anomalies <= 3) {
-				TESTPMD_LOG(NOTICE,
-					    "rxq_data=%p tsc_start=%" PRIu64
-					    " poll=%" PRIu64 "\n",
-					    (void *)rxq_data,
-					    rxq_data->rx_burst_tsc_start,
-					    rxq_data->rx_burst_tsc_poll);
-			}
-			if (rxq_data->rx_burst_tsc_start > 0) {
-				r->rx_burst_tsc_total =
-					tsc_end - rxq_data->rx_burst_tsc_start;
-				r->rx_burst_tsc_poll = rxq_data->rx_burst_tsc_poll;
-				r->rx_burst_tsc_alloc = rxq_data->rx_burst_tsc_alloc;
-				r->rx_burst_tsc_wqe = rxq_data->rx_burst_tsc_wqe;
-			}
+	/* Read PMD rx_burst phase timing from shared array. */
+	if (st->port_id < RTE_ETHDEV_JITTER_MAX_PORTS) {
+		const struct rte_ethdev_rx_burst_tsc *t =
+			&rte_ethdev_rx_burst_tsc[st->port_id][0];
+		if (t->start > 0) {
+			r->rx_burst_tsc_total = tsc_end - t->start;
+			r->rx_burst_tsc_poll = t->poll;
+			r->rx_burst_tsc_alloc = t->alloc;
+			r->rx_burst_tsc_wqe = t->wqe;
 		}
 	}
 

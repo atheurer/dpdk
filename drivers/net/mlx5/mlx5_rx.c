@@ -9,6 +9,7 @@
 
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
+#include <rte_ethdev_jitter.h>
 #include <rte_prefetch.h>
 #include <rte_common.h>
 #include <rte_branch_prediction.h>
@@ -935,10 +936,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	unsigned int rq_ci = rxq->rq_ci << sges_n;
 	int len = 0; /* keep its value across iterations. */
 
-	rxq->rx_burst_tsc_start = rte_rdtsc();
-	rxq->rx_burst_tsc_poll = 0;
-	rxq->rx_burst_tsc_alloc = 0;
-	rxq->rx_burst_tsc_wqe = 0;
+	rte_ethdev_rx_burst_tsc_begin(rxq->port_id, 0);
 
 	while (pkts_n) {
 		uint16_t skip_cnt;
@@ -958,7 +956,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		{
 			uint64_t _t = rte_rdtsc();
 			rep = rte_mbuf_raw_alloc(seg->pool);
-			rxq->rx_burst_tsc_alloc += rte_rdtsc() - _t;
+			rte_ethdev_rx_burst_tsc[rxq->port_id][0].alloc += rte_rdtsc() - _t;
 		}
 		if (unlikely(rep == NULL)) {
 			++rxq->stats.rx_nombuf;
@@ -987,7 +985,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 			{
 				uint64_t _t = rte_rdtsc();
 				len = mlx5_rx_poll_len(rxq, cqe, cqe_n, cqe_mask, &mcqe, &skip_cnt, false);
-				rxq->rx_burst_tsc_poll += rte_rdtsc() - _t;
+				rte_ethdev_rx_burst_tsc[rxq->port_id][0].poll += rte_rdtsc() - _t;
 			}
 			if (unlikely(len & MLX5_ERROR_CQE_MASK)) {
 				/* We drop packets with non-critical errors */
@@ -1069,7 +1067,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		*rxq->cq_db = rte_cpu_to_be_32(rxq->cq_ci);
 		rte_io_wmb();
 		*rxq->rq_db = rte_cpu_to_be_32(rxq->rq_ci);
-		rxq->rx_burst_tsc_wqe += rte_rdtsc() - _t;
+		rte_ethdev_rx_burst_tsc[rxq->port_id][0].wqe += rte_rdtsc() - _t;
 	}
 #ifdef MLX5_PMD_SOFT_COUNTERS
 	/* Increment packets counter. */

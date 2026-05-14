@@ -146,11 +146,6 @@ struct __rte_cache_aligned mlx5_rxq_data {
 	uint32_t rxseg_n; /* Number of split segment descriptions. */
 	struct mlx5_eth_rxseg rxseg[MLX5_MAX_RXQ_NSEG];
 	/* Buffer split segment descriptions - sizes, offsets, pools. */
-	/* Per-burst TSC instrumentation (populated by mlx5_rx_burst) */
-	uint64_t rx_burst_tsc_start;
-	uint64_t rx_burst_tsc_poll;
-	uint64_t rx_burst_tsc_alloc;
-	uint64_t rx_burst_tsc_wqe;
 };
 
 /* RX queue control descriptor. */
