@@ -152,6 +152,16 @@ struct jitter_lcore_ctx {
 	uint32_t last_aer_correctable;
 	uint32_t last_aer_uncorrectable;
 
+	/* Previous iteration PMC end values (for delta without begin reads) */
+	uint64_t last_pmc_inst;
+	uint64_t last_pmc_inst_user;
+	uint64_t last_pmc_cycles;
+	uint64_t last_pmc_ref_cycles;
+	uint64_t last_pmc_ocr_hitm;
+	uint64_t last_pmc_ocr_fwd;
+	uint64_t last_pmc_ocr_l3miss;
+	uint64_t last_pmc_mclr_memord;
+
 	/* Ring buffer (wraps — recent anomalies) */
 	struct jitter_record *records;
 	uint32_t record_capacity;
@@ -313,28 +323,20 @@ struct jitter_iter_state {
 	uint64_t tsc_start;
 	uint64_t tsc_post_rx;
 	uint64_t tsc_post_process;
-	uint64_t inst_start;
-	uint64_t inst_user_start;
-	uint64_t cycles_start;
-	uint64_t ref_cycles_start;
-	uint64_t ocr_hitm_start;
-	uint64_t ocr_fwd_start;
-	uint64_t ocr_l3miss_start;
-	uint64_t mclr_memord_start;
+	/* PMC deltas computed in hot path (end - previous end, rollover safe) */
+	uint64_t pmc_inst_delta;
+	uint64_t pmc_inst_user_delta;
+	uint64_t pmc_cycles_delta;
+	uint64_t pmc_ref_cycles_delta;
+	uint64_t pmc_ocr_hitm_delta;
+	uint64_t pmc_ocr_fwd_delta;
+	uint64_t pmc_ocr_l3miss_delta;
+	uint64_t pmc_mclr_memord_delta;
 	/* NIC stats captured in hot path on anomaly */
 	uint64_t imissed_end;
 	uint64_t rx_nombuf_end;
 	uint64_t ierrors_end;
 	uint8_t  nic_stats_valid;
-	/* End values captured in hot path */
-	uint64_t inst_end;
-	uint64_t inst_user_end;
-	uint64_t cycles_end;
-	uint64_t ref_cycles_end;
-	uint64_t ocr_hitm_end;
-	uint64_t ocr_fwd_end;
-	uint64_t ocr_l3miss_end;
-	uint64_t mclr_memord_end;
 	uint32_t rx_ring_depth_before;
 	uint16_t port_id;
 	uint16_t queue_id;
@@ -371,6 +373,17 @@ jitter_rdpmc_read(struct perf_event_mmap_page *pc)
 
 	return count + offset;
 }
+
+#define JITTER_PMC_WIDTH 48
+#define JITTER_PMC_MASK  ((1ULL << JITTER_PMC_WIDTH) - 1)
+
+static __rte_always_inline uint64_t
+jitter_pmc_delta(uint64_t end, uint64_t start)
+{
+	if (likely(end >= start))
+		return end - start;
+	return (end + (1ULL << JITTER_PMC_WIDTH)) - start;
+}
 #endif
 
 static __rte_always_inline void
@@ -390,34 +403,6 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 		int cnt = rte_eth_rx_queue_count(port_id, queue_id);
 		st->rx_ring_depth_before = cnt > 0 ? (uint32_t)cnt : 0;
 	}
-#if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
-	if (likely(ctx->pmc_enabled)) {
-		st->inst_start = jitter_rdpmc_read(ctx->pmc_inst_page);
-		st->inst_user_start = jitter_rdpmc_read(ctx->pmc_inst_user_page);
-		st->cycles_start = jitter_rdpmc_read(ctx->pmc_cycles_page);
-		st->ref_cycles_start = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
-		st->ocr_hitm_start = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
-		st->ocr_fwd_start = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
-		st->ocr_l3miss_start = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
-		st->mclr_memord_start = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
-	} else {
-		st->inst_start = 0;
-		st->inst_user_start = 0;
-		st->cycles_start = 0;
-		st->ref_cycles_start = 0;
-		st->ocr_hitm_start = 0;
-		st->ocr_fwd_start = 0;
-		st->ocr_l3miss_start = 0;
-		st->mclr_memord_start = 0;
-	}
-#else
-	st->inst_start = 0;
-	st->inst_user_start = 0;
-	st->cycles_start = 0;
-	st->ref_cycles_start = 0;
-	st->ocr_hitm_start = 0;
-	st->ocr_fwd_start = 0;
-#endif
 	st->tsc_start = rte_rdtsc();
 }
 
@@ -452,14 +437,31 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 	tsc_end = rte_rdtsc();
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (likely(ctx->pmc_enabled)) {
-		st->inst_end = jitter_rdpmc_read(ctx->pmc_inst_page);
-		st->inst_user_end = jitter_rdpmc_read(ctx->pmc_inst_user_page);
-		st->cycles_end = jitter_rdpmc_read(ctx->pmc_cycles_page);
-		st->ref_cycles_end = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
-		st->ocr_hitm_end = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
-		st->ocr_fwd_end = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
-		st->ocr_l3miss_end = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
-		st->mclr_memord_end = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
+		uint64_t v;
+		v = jitter_rdpmc_read(ctx->pmc_inst_page);
+		st->pmc_inst_delta = jitter_pmc_delta(v, ctx->last_pmc_inst);
+		ctx->last_pmc_inst = v;
+		v = jitter_rdpmc_read(ctx->pmc_inst_user_page);
+		st->pmc_inst_user_delta = jitter_pmc_delta(v, ctx->last_pmc_inst_user);
+		ctx->last_pmc_inst_user = v;
+		v = jitter_rdpmc_read(ctx->pmc_cycles_page);
+		st->pmc_cycles_delta = jitter_pmc_delta(v, ctx->last_pmc_cycles);
+		ctx->last_pmc_cycles = v;
+		v = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
+		st->pmc_ref_cycles_delta = jitter_pmc_delta(v, ctx->last_pmc_ref_cycles);
+		ctx->last_pmc_ref_cycles = v;
+		v = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
+		st->pmc_ocr_hitm_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_hitm);
+		ctx->last_pmc_ocr_hitm = v;
+		v = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
+		st->pmc_ocr_fwd_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_fwd);
+		ctx->last_pmc_ocr_fwd = v;
+		v = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
+		st->pmc_ocr_l3miss_delta = jitter_pmc_delta(v, ctx->last_pmc_ocr_l3miss);
+		ctx->last_pmc_ocr_l3miss = v;
+		v = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
+		st->pmc_mclr_memord_delta = jitter_pmc_delta(v, ctx->last_pmc_mclr_memord);
+		ctx->last_pmc_mclr_memord = v;
 	}
 #endif
 	delta = tsc_end - st->tsc_start;

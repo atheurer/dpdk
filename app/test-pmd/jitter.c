@@ -296,14 +296,14 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (ctx->pmc_enabled) {
-		r->inst_retired_delta = st->inst_end - st->inst_start;
-		r->cycles_unhalted_delta = st->cycles_end - st->cycles_start;
-		r->inst_retired_user_delta = st->inst_user_end - st->inst_user_start;
-		r->ref_cycles_delta = st->ref_cycles_end - st->ref_cycles_start;
-		r->ocr_l3_hit_snoop_hitm_delta = st->ocr_hitm_end - st->ocr_hitm_start;
-		r->ocr_l3_hit_snoop_fwd_delta = st->ocr_fwd_end - st->ocr_fwd_start;
-		r->ocr_l3_miss_delta = st->ocr_l3miss_end - st->ocr_l3miss_start;
-		r->machine_clears_mem_ord_delta = st->mclr_memord_end - st->mclr_memord_start;
+		r->inst_retired_delta = st->pmc_inst_delta;
+		r->inst_retired_user_delta = st->pmc_inst_user_delta;
+		r->cycles_unhalted_delta = st->pmc_cycles_delta;
+		r->ref_cycles_delta = st->pmc_ref_cycles_delta;
+		r->ocr_l3_hit_snoop_hitm_delta = st->pmc_ocr_hitm_delta;
+		r->ocr_l3_hit_snoop_fwd_delta = st->pmc_ocr_fwd_delta;
+		r->ocr_l3_miss_delta = st->pmc_ocr_l3miss_delta;
+		r->machine_clears_mem_ord_delta = st->pmc_mclr_memord_delta;
 	}
 #endif
 

@@ -43,6 +43,8 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	attr.exclude_kernel = 0;
 	attr.exclude_hv = 1;
 	attr.pinned = 1;
+	attr.sample_period = 0;
+	attr.wakeup_events = 0;
 
 	fd_inst = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
 	if (fd_inst < 0) {
@@ -60,8 +62,12 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	ctx->pmc_inst_fd = fd_inst;
 
 	/* User-only instructions (exclude_kernel=1) */
+	memset(&attr, 0, sizeof(attr));
+	attr.type = PERF_TYPE_HARDWARE;
+	attr.size = sizeof(attr);
 	attr.config = PERF_COUNT_HW_INSTRUCTIONS;
 	attr.exclude_kernel = 1;
+	attr.exclude_hv = 1;
 	int fd_inst_user = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
 	if (fd_inst_user < 0) {
 		TESTPMD_LOG(WARNING, "perf_event_open(INSTRUCTIONS user-only) "
@@ -80,9 +86,12 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 			ctx->pmc_inst_user_fd = fd_inst_user;
 		}
 	}
-	attr.exclude_kernel = 0;
-
+	memset(&attr, 0, sizeof(attr));
+	attr.type = PERF_TYPE_HARDWARE;
+	attr.size = sizeof(attr);
 	attr.config = PERF_COUNT_HW_CPU_CYCLES;
+	attr.exclude_hv = 1;
+	attr.pinned = 1;
 	fd_cyc = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
 	if (fd_cyc < 0) {
 		TESTPMD_LOG(WARNING, "perf_event_open(CYCLES) failed: %s\n",
@@ -104,7 +113,11 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 	ctx->pmc_cycles_page = p;
 	ctx->pmc_cycles_fd = fd_cyc;
 
+	memset(&attr, 0, sizeof(attr));
+	attr.type = PERF_TYPE_HARDWARE;
+	attr.size = sizeof(attr);
 	attr.config = PERF_COUNT_HW_REF_CPU_CYCLES;
+	attr.exclude_hv = 1;
 	int fd_ref = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
 	if (fd_ref < 0) {
 		TESTPMD_LOG(WARNING, "perf_event_open(REF_CYCLES) failed: %s "
