@@ -9,6 +9,7 @@
 
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
+#include <rte_ethdev_jitter.h>
 #include <rte_prefetch.h>
 #include <rte_vect.h>
 
@@ -410,17 +411,27 @@ mlx5_rx_burst_vec(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	uint64_t err = 0;
 	bool no_cq = false;
 
+	rte_ethdev_rx_burst_tsc_begin(rxq->port_id, 0);
+
 	do {
+		uint64_t _poll_t = rte_rdtsc();
 		err = 0;
 		nb_rx = rxq_burst_v(rxq, pkts + tn, pkts_n - tn,
 				    &err, &no_cq);
+		rte_ethdev_rx_burst_tsc[rxq->port_id][0].poll +=
+			rte_rdtsc() - _poll_t;
 		if (unlikely(err | rxq->err_state))
 			nb_rx = rxq_handle_pending_error(rxq, pkts + tn, nb_rx);
 		tn += nb_rx;
 		if (unlikely(no_cq))
 			break;
-		rte_io_wmb();
-		*rxq->cq_db = rte_cpu_to_be_32(rxq->cq_ci);
+		{
+			uint64_t _wqe_t = rte_rdtsc();
+			rte_io_wmb();
+			*rxq->cq_db = rte_cpu_to_be_32(rxq->cq_ci);
+			rte_ethdev_rx_burst_tsc[rxq->port_id][0].wqe +=
+				rte_rdtsc() - _wqe_t;
+		}
 	} while (tn != pkts_n);
 	return tn;
 }
