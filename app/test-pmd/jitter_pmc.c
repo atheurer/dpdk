@@ -136,54 +136,11 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		}
 	}
 
-	/* Platform-specific raw events for cross-core contention diagnosis.
-	 * OCR events use PERF_TYPE_RAW with config1 for the offcore filter. */
-	struct {
-		uint64_t config;
-		uint64_t config1;
-		const char *name;
-		struct perf_event_mmap_page **page;
-		int *fd;
-	} raw_events[] = {
-		{ 0x1b7, 0x10003c0001, "ocr.demand_data_rd.l3_hit.snoop_hitm",
-		  &ctx->pmc_ocr_hitm_page, &ctx->pmc_ocr_hitm_fd },
-		{ 0x1b7, 0x8003c0001, "ocr.demand_data_rd.l3_hit.snoop_hit_with_fwd",
-		  &ctx->pmc_ocr_fwd_page, &ctx->pmc_ocr_fwd_fd },
-		{ 0x1b7, 0x3fbfc00001, "ocr.demand_data_rd.l3_miss",
-		  &ctx->pmc_ocr_l3miss_page, &ctx->pmc_ocr_l3miss_fd },
-		{ 0x2c3, 0, "machine_clears.memory_ordering",
-		  &ctx->pmc_mclr_memord_page, &ctx->pmc_mclr_memord_fd },
-	};
-
-	for (unsigned i = 0; i < RTE_DIM(raw_events); i++) {
-		memset(&attr, 0, sizeof(attr));
-		attr.type = PERF_TYPE_RAW;
-		attr.size = sizeof(attr);
-		attr.config = raw_events[i].config;
-		attr.config1 = raw_events[i].config1;
-		attr.disabled = 0;
-		attr.exclude_kernel = 0;
-		attr.exclude_hv = 1;
-		attr.pinned = 0;
-
-		int raw_fd = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
-		if (raw_fd < 0) {
-			TESTPMD_LOG(INFO, "%s not available on this platform\n",
-				    raw_events[i].name);
-			*raw_events[i].page = NULL;
-			*raw_events[i].fd = 0;
-		} else {
-			p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, raw_fd, 0);
-			if (p == MAP_FAILED) {
-				close(raw_fd);
-				*raw_events[i].page = NULL;
-				*raw_events[i].fd = 0;
-			} else {
-				*raw_events[i].page = p;
-				*raw_events[i].fd = raw_fd;
-			}
-		}
-	}
+	/*
+	 * DISABLED: OCR/raw events cause PMI interrupt storm on isolated
+	 * CPUs. Need to investigate whether direct MSR programming avoids
+	 * this. See git history for the raw event setup code.
+	 */
 
 	ctx->pmc_enabled = 1;
 	return 0;
