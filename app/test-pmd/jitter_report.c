@@ -187,6 +187,11 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 		fprintf(f, "      wqe:    %.1f us  (%" PRIu64 " cycles)\n",
 			(double)r->rx_burst_tsc_wqe * 1e6 / hz,
 			r->rx_burst_tsc_wqe);
+		if (r->rx_poll_pmc_valid)
+			fprintf(f, "      poll_pmc: mem_stall_all=%" PRIu64
+				" mem_stall_l2hit=%" PRIu64 " (raw)\n",
+				r->rx_poll_mem_stall_all,
+				r->rx_poll_mem_stall_l2hit);
 	}
 	if (r->flags & JITTER_FLAG_IRQ_EVENT) {
 		fprintf(f, "    Interrupts (eBPF-detected):\n");

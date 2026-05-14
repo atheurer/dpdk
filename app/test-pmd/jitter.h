@@ -61,6 +61,10 @@ struct jitter_record {
 	uint64_t rx_burst_tsc_poll;
 	uint64_t rx_burst_tsc_alloc;
 	uint64_t rx_burst_tsc_wqe;
+	/* Conditional PMC snapshot from inside rx_burst poll phase */
+	uint64_t rx_poll_mem_stall_all;
+	uint64_t rx_poll_mem_stall_l2hit;
+	uint8_t  rx_poll_pmc_valid;
 
 	/* Device-side state */
 	uint32_t rx_ring_depth_before;

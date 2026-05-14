@@ -195,14 +195,18 @@ drivers/net/mlx5/
 
 8. **rdpmc permission**: Direct rdpmc reads (for MSR-programmed counters) require `/sys/bus/event_source/devices/cpu/rdpmc` set to 2.
 
-## Investigation Findings (Sierra Forest / Xeon 6780E)
+## Investigation Findings
 
 Using gc-stress (280 workers, GOGC=1) to generate memory pressure on all CPUs except testpmd's:
 
 - **Anomaly rate**: ~30K/min on the traffic-handling lcore, ~20/min on idle lcore
 - **Anomaly duration**: 40-90 us (vs <5 us baseline)
 - **Phase**: >95% of stall time is in `rx` phase (inside `rte_eth_rx_burst`)
-- **rx_burst sub-phase**: >95% of rx time is in `poll` (CQE processing / `rxq_cq_process_v`)
+- **rx_burst sub-phase**: stalls distributed across CQE processing (`rxq_cq_process_v`),
+  mbuf allocation (`mlx5_rx_replenish_bulk_mbuf`), MMIO reads (`rte_eth_rx_queue_count`),
+  and tx_burst — all memory access paths affected equally
 - **LLC/cache**: Near-zero LLC misses, near-zero snoop_hitm/fwd — NOT cache eviction or cross-core contention
 - **Memory stalls**: `mem_bound_stalls_load.all` accounts for 10-30% of anomaly cycles
-- **Root cause hypothesis**: Memory/mesh interconnect bandwidth saturation causing elevated latency for all memory accesses (including NIC CQE reads), even when data is in cache
+- **IMC bandwidth**: gc-stress drives DRAM bandwidth from ~10 MiB/s to ~27 GB/s (~1000x increase)
+- **Root cause confirmed**: Memory controller and mesh interconnect bandwidth saturation
+  causing elevated latency for all memory accesses, even when data is in cache

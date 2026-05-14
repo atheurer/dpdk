@@ -313,9 +313,7 @@ rxq_burst_v(struct mlx5_rxq_data *rxq, struct rte_mbuf **pkts,
 	rte_prefetch0(cq + 2);
 	rte_prefetch0(cq + 3);
 	pkts_n = RTE_MIN(pkts_n, MLX5_VPMD_RX_MAX_BURST);
-	_t = rte_rdtsc();
 	mlx5_rx_replenish_bulk_mbuf(rxq);
-	if (_jtsc) _jtsc->alloc += rte_rdtsc() - _t;
 	/* See if there're unreturned mbufs from compressed CQE. */
 	rcvd_pkt = rxq->decompressed;
 	if (rcvd_pkt > 0) {
@@ -348,10 +346,23 @@ rxq_burst_v(struct mlx5_rxq_data *rxq, struct rte_mbuf **pkts,
 			goto decompress;
 		}
 	}
-	/* Process all the CQEs */
+	/* Process all the CQEs. If slow, capture PMC snapshot. */
 	_t = rte_rdtsc();
 	nocmp_n = rxq_cq_process_v(rxq, cq, elts, pkts, pkts_n, err, &comp_idx);
-	if (_jtsc) _jtsc->poll += rte_rdtsc() - _t;
+	if (_jtsc) {
+		uint64_t _elapsed = rte_rdtsc() - _t;
+		_jtsc->poll += _elapsed;
+#if defined(RTE_ARCH_X86_64)
+		if (unlikely(rte_ethdev_rx_burst_pmc_threshold > 0 &&
+			     _elapsed > rte_ethdev_rx_burst_pmc_threshold)) {
+			_jtsc->poll_mem_stall_all =
+				rte_ethdev_jitter_rdpmc(6);
+			_jtsc->poll_mem_stall_l2hit =
+				rte_ethdev_jitter_rdpmc(7);
+			_jtsc->poll_pmc_valid = 1;
+		}
+#endif
+	}
 	/* If no new CQE seen, return without updating cq_db. */
 	if (unlikely(!nocmp_n && comp_idx == MLX5_VPMD_DESCS_PER_LOOP)) {
 		*no_cq = true;
@@ -431,13 +442,8 @@ mlx5_rx_burst_vec(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		tn += nb_rx;
 		if (unlikely(no_cq))
 			break;
-		{
-			uint64_t _wqe_t = rte_rdtsc();
-			rte_io_wmb();
-			*rxq->cq_db = rte_cpu_to_be_32(rxq->cq_ci);
-			rte_ethdev_rx_burst_tsc[rxq->port_id][0].wqe +=
-				rte_rdtsc() - _wqe_t;
-		}
+		rte_io_wmb();
+		*rxq->cq_db = rte_cpu_to_be_32(rxq->cq_ci);
 	} while (tn != pkts_n);
 	return tn;
 }

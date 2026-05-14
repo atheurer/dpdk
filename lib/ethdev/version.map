@@ -2,6 +2,7 @@ DPDK_25 {
 	global:
 
 	rte_ethdev_rx_burst_tsc;
+	rte_ethdev_rx_burst_pmc_threshold;
 	rte_eth_add_first_rx_callback;
 	rte_eth_add_rx_callback;
 	rte_eth_add_tx_callback;

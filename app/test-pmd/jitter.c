@@ -63,11 +63,19 @@ jitter_global_init(void)
 	jitter_threshold_cycles =
 		(rte_get_tsc_hz() * jitter_threshold_us_val) / 1000000ULL;
 
+	/* Set PMD-level PMC threshold to half of the jitter threshold.
+	 * This captures PMC data for stalls that are likely to become
+	 * iteration-level anomalies. */
+	rte_ethdev_rx_burst_pmc_threshold =
+		jitter_threshold_cycles > 0 ? jitter_threshold_cycles / 2 : 0;
+
 	TESTPMD_LOG(NOTICE, "Jitter instrumentation enabled: "
 		    "threshold=%" PRIu64 " us (%" PRIu64 " cycles), "
-		    "records=%u, warmup=%" PRIu64 "\n",
+		    "records=%u, warmup=%" PRIu64
+		    ", rx_burst_pmc_threshold=%" PRIu64 " cycles\n",
 		    jitter_threshold_us_val, jitter_threshold_cycles,
-		    jitter_record_count, jitter_warmup_iterations);
+		    jitter_record_count, jitter_warmup_iterations,
+		    rte_ethdev_rx_burst_pmc_threshold);
 
 #ifdef JITTER_HAS_EBPF
 	if (jitter_ebpf_enabled) {
@@ -256,6 +264,13 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 			r->rx_burst_tsc_poll = t->poll;
 			r->rx_burst_tsc_alloc = t->alloc;
 			r->rx_burst_tsc_wqe = t->wqe;
+			if (t->poll_pmc_valid) {
+				r->rx_poll_mem_stall_all =
+					t->poll_mem_stall_all;
+				r->rx_poll_mem_stall_l2hit =
+					t->poll_mem_stall_l2hit;
+				r->rx_poll_pmc_valid = 1;
+			}
 		}
 	}
 
