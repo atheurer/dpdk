@@ -53,11 +53,10 @@ struct jitter_record {
 	uint64_t inst_retired_user_delta;
 	uint64_t cycles_unhalted_delta;
 	uint64_t ref_cycles_delta;
-	uint64_t llc_misses_delta;
-	uint64_t branch_misses_delta;
-	uint64_t mem_stalls_llc_miss_delta;
-	uint64_t mem_stalls_llc_hit_delta;
-	uint64_t llc_refs_delta;
+	uint64_t ocr_l3_hit_snoop_hitm_delta;
+	uint64_t ocr_l3_hit_snoop_fwd_delta;
+	uint64_t ocr_l3_miss_delta;
+	uint64_t machine_clears_mem_ord_delta;
 
 	/* PMD rx_burst phase timing (populated from PMD-specific rxq data) */
 	uint64_t rx_burst_tsc_total;
@@ -129,20 +128,18 @@ struct jitter_lcore_ctx {
 	struct perf_event_mmap_page *pmc_inst_user_page;
 	struct perf_event_mmap_page *pmc_cycles_page;
 	struct perf_event_mmap_page *pmc_ref_cycles_page;
-	struct perf_event_mmap_page *pmc_llc_misses_page;
-	struct perf_event_mmap_page *pmc_branch_misses_page;
+	struct perf_event_mmap_page *pmc_ocr_hitm_page;
+	struct perf_event_mmap_page *pmc_ocr_fwd_page;
 	int pmc_inst_fd;
 	int pmc_inst_user_fd;
 	int pmc_cycles_fd;
 	int pmc_ref_cycles_fd;
-	int pmc_llc_misses_fd;
-	int pmc_branch_misses_fd;
-	struct perf_event_mmap_page *pmc_mem_stalls_llc_miss_page;
-	struct perf_event_mmap_page *pmc_mem_stalls_llc_hit_page;
-	struct perf_event_mmap_page *pmc_llc_refs_page;
-	int pmc_mem_stalls_llc_miss_fd;
-	int pmc_mem_stalls_llc_hit_fd;
-	int pmc_llc_refs_fd;
+	int pmc_ocr_hitm_fd;
+	int pmc_ocr_fwd_fd;
+	struct perf_event_mmap_page *pmc_ocr_l3miss_page;
+	struct perf_event_mmap_page *pmc_mclr_memord_page;
+	int pmc_ocr_l3miss_fd;
+	int pmc_mclr_memord_fd;
 #endif
 
 	/* Last-known cold-path values */
@@ -320,11 +317,10 @@ struct jitter_iter_state {
 	uint64_t inst_user_start;
 	uint64_t cycles_start;
 	uint64_t ref_cycles_start;
-	uint64_t llc_misses_start;
-	uint64_t branch_misses_start;
-	uint64_t mem_stalls_llc_miss_start;
-	uint64_t mem_stalls_llc_hit_start;
-	uint64_t llc_refs_start;
+	uint64_t ocr_hitm_start;
+	uint64_t ocr_fwd_start;
+	uint64_t ocr_l3miss_start;
+	uint64_t mclr_memord_start;
 	/* NIC stats captured in hot path on anomaly */
 	uint64_t imissed_end;
 	uint64_t rx_nombuf_end;
@@ -335,11 +331,10 @@ struct jitter_iter_state {
 	uint64_t inst_user_end;
 	uint64_t cycles_end;
 	uint64_t ref_cycles_end;
-	uint64_t llc_misses_end;
-	uint64_t branch_misses_end;
-	uint64_t mem_stalls_llc_miss_end;
-	uint64_t mem_stalls_llc_hit_end;
-	uint64_t llc_refs_end;
+	uint64_t ocr_hitm_end;
+	uint64_t ocr_fwd_end;
+	uint64_t ocr_l3miss_end;
+	uint64_t mclr_memord_end;
 	uint32_t rx_ring_depth_before;
 	uint16_t port_id;
 	uint16_t queue_id;
@@ -401,29 +396,27 @@ jitter_iter_begin(struct jitter_lcore_ctx *ctx,
 		st->inst_user_start = jitter_rdpmc_read(ctx->pmc_inst_user_page);
 		st->cycles_start = jitter_rdpmc_read(ctx->pmc_cycles_page);
 		st->ref_cycles_start = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
-		st->llc_misses_start = jitter_rdpmc_read(ctx->pmc_llc_misses_page);
-		st->branch_misses_start = jitter_rdpmc_read(ctx->pmc_branch_misses_page);
-		st->mem_stalls_llc_miss_start = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_miss_page);
-		st->mem_stalls_llc_hit_start = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_hit_page);
-		st->llc_refs_start = jitter_rdpmc_read(ctx->pmc_llc_refs_page);
+		st->ocr_hitm_start = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
+		st->ocr_fwd_start = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
+		st->ocr_l3miss_start = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
+		st->mclr_memord_start = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
 	} else {
 		st->inst_start = 0;
 		st->inst_user_start = 0;
 		st->cycles_start = 0;
 		st->ref_cycles_start = 0;
-		st->llc_misses_start = 0;
-		st->branch_misses_start = 0;
-		st->mem_stalls_llc_miss_start = 0;
-		st->mem_stalls_llc_hit_start = 0;
-		st->llc_refs_start = 0;
+		st->ocr_hitm_start = 0;
+		st->ocr_fwd_start = 0;
+		st->ocr_l3miss_start = 0;
+		st->mclr_memord_start = 0;
 	}
 #else
 	st->inst_start = 0;
 	st->inst_user_start = 0;
 	st->cycles_start = 0;
 	st->ref_cycles_start = 0;
-	st->llc_misses_start = 0;
-	st->branch_misses_start = 0;
+	st->ocr_hitm_start = 0;
+	st->ocr_fwd_start = 0;
 #endif
 	st->tsc_start = rte_rdtsc();
 }
@@ -463,11 +456,10 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 		st->inst_user_end = jitter_rdpmc_read(ctx->pmc_inst_user_page);
 		st->cycles_end = jitter_rdpmc_read(ctx->pmc_cycles_page);
 		st->ref_cycles_end = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
-		st->llc_misses_end = jitter_rdpmc_read(ctx->pmc_llc_misses_page);
-		st->branch_misses_end = jitter_rdpmc_read(ctx->pmc_branch_misses_page);
-		st->mem_stalls_llc_miss_end = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_miss_page);
-		st->mem_stalls_llc_hit_end = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_hit_page);
-		st->llc_refs_end = jitter_rdpmc_read(ctx->pmc_llc_refs_page);
+		st->ocr_hitm_end = jitter_rdpmc_read(ctx->pmc_ocr_hitm_page);
+		st->ocr_fwd_end = jitter_rdpmc_read(ctx->pmc_ocr_fwd_page);
+		st->ocr_l3miss_end = jitter_rdpmc_read(ctx->pmc_ocr_l3miss_page);
+		st->mclr_memord_end = jitter_rdpmc_read(ctx->pmc_mclr_memord_page);
 	}
 #endif
 	delta = tsc_end - st->tsc_start;

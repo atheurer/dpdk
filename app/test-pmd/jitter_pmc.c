@@ -123,62 +123,23 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		}
 	}
 
-	/* LLC misses (optional — uses a programmable PMC slot) */
-	attr.config = PERF_COUNT_HW_CACHE_MISSES;
-	int fd_llc = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
-	if (fd_llc < 0) {
-		TESTPMD_LOG(WARNING, "perf_event_open(CACHE_MISSES) failed: %s "
-			    "(LLC misses disabled)\n", strerror(errno));
-		ctx->pmc_llc_misses_page = NULL;
-		ctx->pmc_llc_misses_fd = 0;
-	} else {
-		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_llc, 0);
-		if (p == MAP_FAILED) {
-			close(fd_llc);
-			ctx->pmc_llc_misses_page = NULL;
-			ctx->pmc_llc_misses_fd = 0;
-		} else {
-			ctx->pmc_llc_misses_page = p;
-			ctx->pmc_llc_misses_fd = fd_llc;
-		}
-	}
-
-	/* Branch misses (optional — uses a programmable PMC slot) */
-	attr.config = PERF_COUNT_HW_BRANCH_MISSES;
-	int fd_br = perf_event_open_wrapper(&attr, 0, cpu, -1, 0);
-	if (fd_br < 0) {
-		TESTPMD_LOG(WARNING, "perf_event_open(BRANCH_MISSES) failed: %s "
-			    "(branch misses disabled)\n", strerror(errno));
-		ctx->pmc_branch_misses_page = NULL;
-		ctx->pmc_branch_misses_fd = 0;
-	} else {
-		p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd_br, 0);
-		if (p == MAP_FAILED) {
-			close(fd_br);
-			ctx->pmc_branch_misses_page = NULL;
-			ctx->pmc_branch_misses_fd = 0;
-		} else {
-			ctx->pmc_branch_misses_page = p;
-			ctx->pmc_branch_misses_fd = fd_br;
-		}
-	}
-
-	/* Platform-specific raw events (Sierra Forest / Crestmont) */
+	/* Platform-specific raw events for cross-core contention diagnosis.
+	 * OCR events use PERF_TYPE_RAW with config1 for the offcore filter. */
 	struct {
 		uint64_t config;
+		uint64_t config1;
 		const char *name;
 		struct perf_event_mmap_page **page;
 		int *fd;
 	} raw_events[] = {
-		{ 0x7834, "mem_bound_stalls_load.llc_miss",
-		  &ctx->pmc_mem_stalls_llc_miss_page,
-		  &ctx->pmc_mem_stalls_llc_miss_fd },
-		{ 0x0634, "mem_bound_stalls_load.llc_hit",
-		  &ctx->pmc_mem_stalls_llc_hit_page,
-		  &ctx->pmc_mem_stalls_llc_hit_fd },
-		{ 0x4f2e, "longest_lat_cache.reference",
-		  &ctx->pmc_llc_refs_page,
-		  &ctx->pmc_llc_refs_fd },
+		{ 0x1b7, 0x10003c0001, "ocr.demand_data_rd.l3_hit.snoop_hitm",
+		  &ctx->pmc_ocr_hitm_page, &ctx->pmc_ocr_hitm_fd },
+		{ 0x1b7, 0x8003c0001, "ocr.demand_data_rd.l3_hit.snoop_hit_with_fwd",
+		  &ctx->pmc_ocr_fwd_page, &ctx->pmc_ocr_fwd_fd },
+		{ 0x1b7, 0x3fbfc00001, "ocr.demand_data_rd.l3_miss",
+		  &ctx->pmc_ocr_l3miss_page, &ctx->pmc_ocr_l3miss_fd },
+		{ 0x2c3, 0, "machine_clears.memory_ordering",
+		  &ctx->pmc_mclr_memord_page, &ctx->pmc_mclr_memord_fd },
 	};
 
 	for (unsigned i = 0; i < RTE_DIM(raw_events); i++) {
@@ -186,6 +147,7 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		attr.type = PERF_TYPE_RAW;
 		attr.size = sizeof(attr);
 		attr.config = raw_events[i].config;
+		attr.config1 = raw_events[i].config1;
 		attr.disabled = 0;
 		attr.exclude_kernel = 0;
 		attr.exclude_hv = 1;
@@ -249,45 +211,37 @@ jitter_pmc_teardown(struct jitter_lcore_ctx *ctx)
 		close(ctx->pmc_ref_cycles_fd);
 		ctx->pmc_ref_cycles_fd = 0;
 	}
-	if (ctx->pmc_llc_misses_page != NULL) {
-		munmap(ctx->pmc_llc_misses_page, 4096);
-		ctx->pmc_llc_misses_page = NULL;
+	if (ctx->pmc_ocr_hitm_page != NULL) {
+		munmap(ctx->pmc_ocr_hitm_page, 4096);
+		ctx->pmc_ocr_hitm_page = NULL;
 	}
-	if (ctx->pmc_llc_misses_fd > 0) {
-		close(ctx->pmc_llc_misses_fd);
-		ctx->pmc_llc_misses_fd = 0;
+	if (ctx->pmc_ocr_hitm_fd > 0) {
+		close(ctx->pmc_ocr_hitm_fd);
+		ctx->pmc_ocr_hitm_fd = 0;
 	}
-	if (ctx->pmc_branch_misses_page != NULL) {
-		munmap(ctx->pmc_branch_misses_page, 4096);
-		ctx->pmc_branch_misses_page = NULL;
+	if (ctx->pmc_ocr_fwd_page != NULL) {
+		munmap(ctx->pmc_ocr_fwd_page, 4096);
+		ctx->pmc_ocr_fwd_page = NULL;
 	}
-	if (ctx->pmc_branch_misses_fd > 0) {
-		close(ctx->pmc_branch_misses_fd);
-		ctx->pmc_branch_misses_fd = 0;
+	if (ctx->pmc_ocr_fwd_fd > 0) {
+		close(ctx->pmc_ocr_fwd_fd);
+		ctx->pmc_ocr_fwd_fd = 0;
 	}
-	if (ctx->pmc_mem_stalls_llc_miss_page != NULL) {
-		munmap(ctx->pmc_mem_stalls_llc_miss_page, 4096);
-		ctx->pmc_mem_stalls_llc_miss_page = NULL;
+	if (ctx->pmc_ocr_l3miss_page != NULL) {
+		munmap(ctx->pmc_ocr_l3miss_page, 4096);
+		ctx->pmc_ocr_l3miss_page = NULL;
 	}
-	if (ctx->pmc_mem_stalls_llc_miss_fd > 0) {
-		close(ctx->pmc_mem_stalls_llc_miss_fd);
-		ctx->pmc_mem_stalls_llc_miss_fd = 0;
+	if (ctx->pmc_ocr_l3miss_fd > 0) {
+		close(ctx->pmc_ocr_l3miss_fd);
+		ctx->pmc_ocr_l3miss_fd = 0;
 	}
-	if (ctx->pmc_mem_stalls_llc_hit_page != NULL) {
-		munmap(ctx->pmc_mem_stalls_llc_hit_page, 4096);
-		ctx->pmc_mem_stalls_llc_hit_page = NULL;
+	if (ctx->pmc_mclr_memord_page != NULL) {
+		munmap(ctx->pmc_mclr_memord_page, 4096);
+		ctx->pmc_mclr_memord_page = NULL;
 	}
-	if (ctx->pmc_mem_stalls_llc_hit_fd > 0) {
-		close(ctx->pmc_mem_stalls_llc_hit_fd);
-		ctx->pmc_mem_stalls_llc_hit_fd = 0;
-	}
-	if (ctx->pmc_llc_refs_page != NULL) {
-		munmap(ctx->pmc_llc_refs_page, 4096);
-		ctx->pmc_llc_refs_page = NULL;
-	}
-	if (ctx->pmc_llc_refs_fd > 0) {
-		close(ctx->pmc_llc_refs_fd);
-		ctx->pmc_llc_refs_fd = 0;
+	if (ctx->pmc_mclr_memord_fd > 0) {
+		close(ctx->pmc_mclr_memord_fd);
+		ctx->pmc_mclr_memord_fd = 0;
 	}
 	ctx->pmc_enabled = 0;
 }

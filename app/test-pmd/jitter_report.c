@@ -166,19 +166,14 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 			(double)r->ref_cycles_delta);
 	else
 		fprintf(f, "    freq ratio:      N/A\n");
-	fprintf(f, "    llc_misses:      %" PRIu64 "\n",
-		r->llc_misses_delta);
-	fprintf(f, "    branch_misses:   %" PRIu64 "\n",
-		r->branch_misses_delta);
-	if (r->mem_stalls_llc_miss_delta > 0 || r->mem_stalls_llc_hit_delta > 0
-	    || r->llc_refs_delta > 0) {
-		fprintf(f, "    mem_stall_llc_miss: %" PRIu64 " cycles\n",
-			r->mem_stalls_llc_miss_delta);
-		fprintf(f, "    mem_stall_llc_hit:  %" PRIu64 " cycles\n",
-			r->mem_stalls_llc_hit_delta);
-		fprintf(f, "    llc_refs:          %" PRIu64 "\n",
-			r->llc_refs_delta);
-	}
+	fprintf(f, "    snoop_hitm:      %" PRIu64 "\n",
+		r->ocr_l3_hit_snoop_hitm_delta);
+	fprintf(f, "    snoop_fwd:       %" PRIu64 "\n",
+		r->ocr_l3_hit_snoop_fwd_delta);
+	fprintf(f, "    l3_miss:         %" PRIu64 "\n",
+		r->ocr_l3_miss_delta);
+	fprintf(f, "    mclr_mem_ord:    %" PRIu64 "\n",
+		r->machine_clears_mem_ord_delta);
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
 	if (r->rx_burst_tsc_total > 0) {
