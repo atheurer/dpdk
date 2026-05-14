@@ -131,7 +131,7 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 	ctx->warmup_remaining = jitter_warmup_iterations;
 
 	ctx->worst = rte_zmalloc_socket("jitter_worst",
-					sizeof(struct jitter_record) * 10,
+					sizeof(struct jitter_record) * 50,
 					RTE_CACHE_LINE_SIZE, socket_id);
 	if (ctx->worst == NULL) {
 		TESTPMD_LOG(ERR, "Failed to allocate jitter worst buffer for lcore %u\n",
@@ -140,7 +140,7 @@ jitter_lcore_init(unsigned int lcore_id, uint16_t port_id, uint16_t queue_id)
 		rte_free(ctx);
 		return NULL;
 	}
-	ctx->worst_capacity = 10;
+	ctx->worst_capacity = 50;
 	ctx->worst_count = 0;
 
 	ctx->lcore_id = lcore_id;
