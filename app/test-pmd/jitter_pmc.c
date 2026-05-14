@@ -170,26 +170,24 @@ jitter_pmc_setup(struct jitter_lcore_ctx *ctx, int cpu)
 		} else {
 			uint64_t evtsel, rsp;
 
-			/* Slot 6: ocr.demand_data_rd.l3_hit.snoop_hitm */
-			rsp = 0x10003c0001ULL;
-			pwrite(msr_fd, &rsp, 8, MSR_OFFCORE_RSP_0);
+			/* Slot 6: mem_bound_stalls_load.all
+			 * (event=0x34, umask=0x7F) */
 			evtsel = PERFEVTSEL_EN | PERFEVTSEL_OS |
-				 PERFEVTSEL_USR | (0x01ULL << 8) | 0xB7;
+				 PERFEVTSEL_USR | (0x7FULL << 8) | 0x34;
 			pwrite(msr_fd, &evtsel, 8, IA32_PERFEVTSEL6);
 			ctx->ocr_msr_fd = msr_fd;
 			ctx->ocr_slot6_enabled = 1;
-			TESTPMD_LOG(NOTICE, "OCR slot 6: snoop_hitm (MSR "
-				    "direct, no interrupts)\n");
+			TESTPMD_LOG(NOTICE, "MSR slot 6: mem_bound_stalls_load"
+				    ".all (direct, no interrupts)\n");
 
-			/* Slot 7: ocr.demand_data_rd.l3_hit.snoop_hit_with_fwd */
-			rsp = 0x8003c0001ULL;
-			pwrite(msr_fd, &rsp, 8, MSR_OFFCORE_RSP_1);
+			/* Slot 7: mem_bound_stalls_load.l2_hit
+			 * (event=0x34, umask=0x01) */
 			evtsel = PERFEVTSEL_EN | PERFEVTSEL_OS |
-				 PERFEVTSEL_USR | (0x02ULL << 8) | 0xB7;
+				 PERFEVTSEL_USR | (0x01ULL << 8) | 0x34;
 			pwrite(msr_fd, &evtsel, 8, IA32_PERFEVTSEL7);
 			ctx->ocr_slot7_enabled = 1;
-			TESTPMD_LOG(NOTICE, "OCR slot 7: snoop_fwd (MSR "
-				    "direct, no interrupts)\n");
+			TESTPMD_LOG(NOTICE, "MSR slot 7: mem_bound_stalls_load"
+				    ".l2_hit (direct, no interrupts)\n");
 		}
 	}
 

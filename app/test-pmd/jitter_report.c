@@ -166,9 +166,9 @@ dump_record_text(FILE *f, const struct jitter_record *r, uint32_t idx,
 			(double)r->ref_cycles_delta);
 	else
 		fprintf(f, "    freq ratio:      N/A\n");
-	fprintf(f, "    snoop_hitm:      %" PRIu64 "\n",
+	fprintf(f, "    mem_stall_all:   %" PRIu64 " cycles\n",
 		r->ocr_l3_hit_snoop_hitm_delta);
-	fprintf(f, "    snoop_fwd:       %" PRIu64 "\n",
+	fprintf(f, "    mem_stall_l2hit: %" PRIu64 " cycles\n",
 		r->ocr_l3_hit_snoop_fwd_delta);
 	fprintf(f, "    rx_ring_before:  %u  rx_ring_after: %u  nb_rx: %u\n",
 		r->rx_ring_depth_before, r->rx_ring_depth_after, r->nb_rx);
