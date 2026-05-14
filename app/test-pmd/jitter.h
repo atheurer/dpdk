@@ -315,6 +315,16 @@ struct jitter_iter_state {
 	uint64_t mem_stalls_llc_miss_start;
 	uint64_t mem_stalls_llc_hit_start;
 	uint64_t llc_refs_start;
+	/* End values captured in hot path */
+	uint64_t inst_end;
+	uint64_t inst_user_end;
+	uint64_t cycles_end;
+	uint64_t ref_cycles_end;
+	uint64_t llc_misses_end;
+	uint64_t branch_misses_end;
+	uint64_t mem_stalls_llc_miss_end;
+	uint64_t mem_stalls_llc_hit_end;
+	uint64_t llc_refs_end;
 	uint32_t rx_ring_depth_before;
 	uint16_t port_id;
 	uint16_t queue_id;
@@ -432,6 +442,19 @@ jitter_iter_end(struct jitter_lcore_ctx *ctx,
 	if (unlikely(ctx == NULL))
 		return;
 	tsc_end = rte_rdtsc();
+#if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
+	if (likely(ctx->pmc_enabled)) {
+		st->inst_end = jitter_rdpmc_read(ctx->pmc_inst_page);
+		st->inst_user_end = jitter_rdpmc_read(ctx->pmc_inst_user_page);
+		st->cycles_end = jitter_rdpmc_read(ctx->pmc_cycles_page);
+		st->ref_cycles_end = jitter_rdpmc_read(ctx->pmc_ref_cycles_page);
+		st->llc_misses_end = jitter_rdpmc_read(ctx->pmc_llc_misses_page);
+		st->branch_misses_end = jitter_rdpmc_read(ctx->pmc_branch_misses_page);
+		st->mem_stalls_llc_miss_end = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_miss_page);
+		st->mem_stalls_llc_hit_end = jitter_rdpmc_read(ctx->pmc_mem_stalls_llc_hit_page);
+		st->llc_refs_end = jitter_rdpmc_read(ctx->pmc_llc_refs_page);
+	}
+#endif
 	delta = tsc_end - st->tsc_start;
 	ctx->total_iterations++;
 	if (unlikely(ctx->warmup_remaining > 0)) {

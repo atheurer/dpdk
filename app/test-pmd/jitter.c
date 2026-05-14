@@ -280,49 +280,15 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 
 #if defined(RTE_ARCH_X86_64) && defined(RTE_EXEC_ENV_LINUX)
 	if (ctx->pmc_enabled) {
-		uint64_t inst_end = jitter_rdpmc_read(ctx->pmc_inst_page);
-		uint64_t cyc_end = jitter_rdpmc_read(ctx->pmc_cycles_page);
-		r->inst_retired_delta = inst_end - st->inst_start;
-		r->cycles_unhalted_delta = cyc_end - st->cycles_start;
-		if (ctx->pmc_inst_user_page != NULL) {
-			uint64_t inst_user_end = jitter_rdpmc_read(
-				ctx->pmc_inst_user_page);
-			r->inst_retired_user_delta =
-				inst_user_end - st->inst_user_start;
-		}
-		if (ctx->pmc_ref_cycles_page != NULL) {
-			uint64_t ref_end = jitter_rdpmc_read(
-				ctx->pmc_ref_cycles_page);
-			r->ref_cycles_delta = ref_end - st->ref_cycles_start;
-		}
-		if (ctx->pmc_llc_misses_page != NULL) {
-			uint64_t llc_end = jitter_rdpmc_read(
-				ctx->pmc_llc_misses_page);
-			r->llc_misses_delta = llc_end - st->llc_misses_start;
-		}
-		if (ctx->pmc_branch_misses_page != NULL) {
-			uint64_t br_end = jitter_rdpmc_read(
-				ctx->pmc_branch_misses_page);
-			r->branch_misses_delta =
-				br_end - st->branch_misses_start;
-		}
-		if (ctx->pmc_mem_stalls_llc_miss_page != NULL) {
-			uint64_t v = jitter_rdpmc_read(
-				ctx->pmc_mem_stalls_llc_miss_page);
-			r->mem_stalls_llc_miss_delta =
-				v - st->mem_stalls_llc_miss_start;
-		}
-		if (ctx->pmc_mem_stalls_llc_hit_page != NULL) {
-			uint64_t v = jitter_rdpmc_read(
-				ctx->pmc_mem_stalls_llc_hit_page);
-			r->mem_stalls_llc_hit_delta =
-				v - st->mem_stalls_llc_hit_start;
-		}
-		if (ctx->pmc_llc_refs_page != NULL) {
-			uint64_t v = jitter_rdpmc_read(
-				ctx->pmc_llc_refs_page);
-			r->llc_refs_delta = v - st->llc_refs_start;
-		}
+		r->inst_retired_delta = st->inst_end - st->inst_start;
+		r->cycles_unhalted_delta = st->cycles_end - st->cycles_start;
+		r->inst_retired_user_delta = st->inst_user_end - st->inst_user_start;
+		r->ref_cycles_delta = st->ref_cycles_end - st->ref_cycles_start;
+		r->llc_misses_delta = st->llc_misses_end - st->llc_misses_start;
+		r->branch_misses_delta = st->branch_misses_end - st->branch_misses_start;
+		r->mem_stalls_llc_miss_delta = st->mem_stalls_llc_miss_end - st->mem_stalls_llc_miss_start;
+		r->mem_stalls_llc_hit_delta = st->mem_stalls_llc_hit_end - st->mem_stalls_llc_hit_start;
+		r->llc_refs_delta = st->llc_refs_end - st->llc_refs_start;
 	}
 #endif
 
