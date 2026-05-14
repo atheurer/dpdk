@@ -253,12 +253,22 @@ jitter_record_anomaly(struct jitter_lcore_ctx *ctx,
 		struct mlx5_rxq_data *rxq_data =
 			rte_eth_devices[st->port_id].data->
 			rx_queues[st->queue_id];
-		if (rxq_data != NULL && rxq_data->rx_burst_tsc_start > 0) {
-			r->rx_burst_tsc_total =
-				tsc_end - rxq_data->rx_burst_tsc_start;
-			r->rx_burst_tsc_poll = rxq_data->rx_burst_tsc_poll;
-			r->rx_burst_tsc_alloc = rxq_data->rx_burst_tsc_alloc;
-			r->rx_burst_tsc_wqe = rxq_data->rx_burst_tsc_wqe;
+		if (rxq_data != NULL) {
+			if (ctx->total_anomalies <= 3) {
+				TESTPMD_LOG(NOTICE,
+					    "rxq_data=%p tsc_start=%" PRIu64
+					    " poll=%" PRIu64 "\n",
+					    (void *)rxq_data,
+					    rxq_data->rx_burst_tsc_start,
+					    rxq_data->rx_burst_tsc_poll);
+			}
+			if (rxq_data->rx_burst_tsc_start > 0) {
+				r->rx_burst_tsc_total =
+					tsc_end - rxq_data->rx_burst_tsc_start;
+				r->rx_burst_tsc_poll = rxq_data->rx_burst_tsc_poll;
+				r->rx_burst_tsc_alloc = rxq_data->rx_burst_tsc_alloc;
+				r->rx_burst_tsc_wqe = rxq_data->rx_burst_tsc_wqe;
+			}
 		}
 	}
 
